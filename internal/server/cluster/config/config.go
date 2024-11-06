@@ -125,6 +125,27 @@ func (c *Config) MaxStandBy() int64 {
 	return c.m.GetInt64("cluster.max_standby")
 }
 
+// ClusterRebalanceBatch returns maximum number of instances to move during one re-balancing run.
+func (c *Config) ClusterRebalanceBatch() int64 {
+	return c.m.GetInt64("cluster.rebalance.batch")
+}
+
+// ClusterRebalanceCooldown returns amount of time during which an instance will not be moved again.
+func (c *Config) ClusterRebalanceCooldown() string {
+	return c.m.GetString("cluster.rebalance.cooldown")
+}
+
+// ClusterRebalanceFrequency returns the frequency of considering re-balanicng.
+func (c *Config) ClusterRebalanceFrequency() int64 {
+	return c.m.GetInt64("cluster.rebalance.frequency")
+}
+
+// ClusterRebalanceThreshold returns load difference between most and least busy server
+// needed to trigger a migration.
+func (c *Config) ClusterRebalanceThreshold() int64 {
+	return c.m.GetInt64("cluster.rebalance.threshold")
+}
+
 // NetworkOVNIntegrationBridge returns the integration OVS bridge to use for OVN networks.
 func (c *Config) NetworkOVNIntegrationBridge() string {
 	return c.m.GetString("network.ovn.integration_bridge")
@@ -389,6 +410,41 @@ var ConfigSchema = config.Schema{
 	//  defaultdesc: `2`
 	//  shortdesc: Number of database stand-by members
 	"cluster.max_standby": {Type: config.Int64, Default: "2", Validator: maxStandByValidator},
+
+	// gendoc:generate(entity=server, group=cluster, key=cluster.rebalance.batch)
+	//
+	// ---
+	//  type: integer
+	//  scope: global
+	//  defaultdesc: `10`
+	//  shortdesc: Maximum number of instances to move during one re-balancing run
+	"cluster.rebalance.batch": {Type: config.Int64, Default: "10"},
+
+	// gendoc:generate(entity=server, group=cluster, key=cluster.rebalance.cooldown)
+	//
+	// ---
+	//  type: string
+	//  scope: global
+	//  defaultdesc: `1H`
+	//  shortdesc: Amount of time during which an instance will not be moved again
+	"cluster.rebalance.cooldown": {Type: config.String, Default: "1H", Validator: validate.Optional(expiryValidator)},
+
+	// gendoc:generate(entity=server, group=cluster, key=cluster.rebalance.frequency)
+	// ---
+	//  type: integer
+	//  scope: global
+	//  defaultdesc: `60`
+	//  shortdesc: How often (in minutes) to consider re-balancing things
+	"cluster.rebalance.frequency": {Type: config.Int64, Default: "60"},
+
+	// gendoc:generate(entity=server, group=cluster, key=cluster.rebalance.threshold)
+	//
+	// ---
+	//  type: integer
+	//  scope: global
+	//  defaultdesc: `0`
+	//  shortdesc: Load difference between most and least busy server needed to trigger a migration
+	"cluster.rebalance.threshold": {Type: config.Int64, Default: "0"},
 
 	// gendoc:generate(entity=server, group=core, key=core.metrics_authentication)
 	//
