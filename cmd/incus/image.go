@@ -1353,7 +1353,7 @@ func (c *cmdImageList) Run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	serverFilters, clientFilters := getServerSupportedFilters(filters, api.Image{}, false)
+	serverFilters, clientFilters := getServerSupportedFilters(filters, api.Image{}, false, "properties")
 
 	var allImages, images []api.Image
 	if c.flagAllProjects {

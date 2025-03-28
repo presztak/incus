@@ -385,7 +385,7 @@ func structHasField(typ reflect.Type, field string) bool {
 }
 
 // getServerSupportedFilters returns two lists: one with filters supported by server and second one with not supported.
-func getServerSupportedFilters(filters []string, i any, singleValueServerSupport bool) ([]string, []string) {
+func getServerSupportedFilters(filters []string, i any, singleValueServerSupport bool, configFieldName string) ([]string, []string) {
 	supportedFilters := []string{}
 	unsupportedFilters := []string{}
 
@@ -400,12 +400,13 @@ func getServerSupportedFilters(filters []string, i any, singleValueServerSupport
 			continue
 		}
 
-		// Only keys which are part of struct are supported by server side API
-		// Multiple values (separated by ',') are not supported by server side API
-		// Keys with '.' in name are not supported
-		if !structHasField(reflect.TypeOf(i), membs[0]) || strings.Contains(membs[1], ",") || strings.Contains(membs[0], ".") {
-			unsupportedFilters = append(unsupportedFilters, filter)
-			continue
+		firstPart := membs[0]
+		if strings.Contains(membs[0], ".") {
+			firstPart = strings.Split(membs[0], ".")[0]
+		}
+
+		if !structHasField(reflect.TypeOf(i), firstPart) {
+			filter = fmt.Sprintf("%s.%s", configFieldName, filter)
 		}
 
 		supportedFilters = append(supportedFilters, filter)

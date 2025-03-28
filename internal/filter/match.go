@@ -118,7 +118,9 @@ func (s ClauseSet) match(c Clause, objValue any) (bool, error) {
 	kind := valInfo.Kind()
 	switch kind {
 	case reflect.String:
-		valueRegexp, _ = s.ParseRegexp(c)
+		if !strings.Contains(c.Value, ",") {
+			valueRegexp, _ = s.ParseRegexp(c)
+		}
 
 		if valueRegexp == nil {
 			valueStr, err = s.ParseString(c)
@@ -154,6 +156,13 @@ func (s ClauseSet) match(c Clause, objValue any) (bool, error) {
 		switch val := objValue.(type) {
 		case string:
 			// Comparison is case insensitive.
+			const shorthandValueDelimiter = ","
+
+			for _, curValue := range strings.Split(valueStr, shorthandValueDelimiter) {
+				if strings.EqualFold(val, curValue) {
+					return true, nil
+				}
+			}
 			return strings.EqualFold(val, valueStr), nil
 		case int, int8, int16, int32, int64:
 			return objValue == valueInt, nil

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -194,39 +193,7 @@ func (c *cmdList) shouldShow(filters []string, inst *api.Instance, state *api.In
 			continue
 		}
 
-		found := false
-		for configKey, configValue := range inst.ExpandedConfig {
-			if c.dotPrefixMatch(key, configKey) {
-				// Try to test filter value as a regexp.
-				regexpValue := value
-				if !strings.Contains(value, "^") && !strings.Contains(value, "$") {
-					regexpValue = "^" + regexpValue + "$"
-				}
-
-				r, err := regexp.Compile(regexpValue)
-				// If not regexp compatible use original value.
-				if err != nil {
-					if value == configValue {
-						found = true
-						break
-					}
-
-					// The property was found but didn't match.
-					return false
-				} else if r.MatchString(configValue) {
-					found = true
-					break
-				}
-			}
-		}
-
-		if inst.ExpandedConfig[key] == value {
-			continue
-		}
-
-		if !found {
-			return false
-		}
+		return false
 	}
 
 	return true
@@ -522,7 +489,7 @@ func (c *cmdList) Run(cmd *cobra.Command, args []string) error {
 		// Using the GetInstancesFull shortcut
 		var instances []api.InstanceFull
 
-		serverFilters, clientFilters := getServerSupportedFilters(filters, api.InstanceFull{}, true)
+		serverFilters, clientFilters := getServerSupportedFilters(filters, api.InstanceFull{}, true, "expanded_config")
 		modifySingleValueFilters(serverFilters, singleValueFilterModifier)
 
 		if c.flagAllProjects {
@@ -540,7 +507,7 @@ func (c *cmdList) Run(cmd *cobra.Command, args []string) error {
 
 	// Get the list of instances
 	var instances []api.Instance
-	serverFilters, clientFilters := getServerSupportedFilters(filters, api.Instance{}, true)
+	serverFilters, clientFilters := getServerSupportedFilters(filters, api.Instance{}, true, "expanded_config")
 	modifySingleValueFilters(serverFilters, singleValueFilterModifier)
 
 	if c.flagAllProjects {
@@ -967,22 +934,6 @@ func (c *cmdList) locationColumnData(cInfo api.InstanceFull) string {
 	return cInfo.Location
 }
 
-func (c *cmdList) matchByType(cInfo *api.Instance, cState *api.InstanceState, query string) bool {
-	return strings.EqualFold(cInfo.Type, query)
-}
-
-func (c *cmdList) matchByStatus(cInfo *api.Instance, cState *api.InstanceState, query string) bool {
-	return strings.EqualFold(cInfo.Status, query)
-}
-
-func (c *cmdList) matchByArchitecture(cInfo *api.Instance, cState *api.InstanceState, query string) bool {
-	return strings.EqualFold(cInfo.InstancePut.Architecture, query)
-}
-
-func (c *cmdList) matchByLocation(cInfo *api.Instance, cState *api.InstanceState, query string) bool {
-	return strings.EqualFold(cInfo.Location, query)
-}
-
 func (c *cmdList) matchByNet(cState *api.InstanceState, query string, family string) bool {
 	// Skip if no state.
 	if cState == nil {
@@ -1034,11 +985,6 @@ func (c *cmdList) matchByIPV4(_ *api.Instance, cState *api.InstanceState, query 
 
 func (c *cmdList) mapShorthandFilters() {
 	c.shorthandFilters = map[string]func(*api.Instance, *api.InstanceState, string) bool{
-		"type":         c.matchByType,
-		"state":        c.matchByStatus,
-		"status":       c.matchByStatus,
-		"architecture": c.matchByArchitecture,
-		"location":     c.matchByLocation,
 		"ipv4":         c.matchByIPV4,
 		"ipv6":         c.matchByIPV6,
 	}

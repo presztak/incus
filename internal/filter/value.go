@@ -5,6 +5,23 @@ import (
 	"strings"
 )
 
+func dotPrefixMatch(short string, full string) bool {
+	fullMembs := strings.Split(full, ".")
+	shortMembs := strings.Split(short, ".")
+
+	if len(fullMembs) != len(shortMembs) {
+		return false
+	}
+
+	for i := range fullMembs {
+		if !strings.HasPrefix(fullMembs[i], shortMembs[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ValueOf returns the value of the given field.
 func ValueOf(obj any, field string) any {
 	value := reflect.ValueOf(obj)
@@ -18,6 +35,11 @@ func ValueOf(obj any, field string) any {
 		switch reflect.TypeOf(obj).Elem().Kind() {
 		case reflect.String:
 			m := value.Interface().(map[string]string)
+			for k, v := range m {
+				if dotPrefixMatch(field, k) {
+					return v
+				}
+			}
 			return m[field]
 		case reflect.Map:
 			for _, entry := range value.MapKeys() {
