@@ -50,6 +50,7 @@ import (
 	"github.com/lxc/incus/v6/internal/server/instance"
 	instanceDrivers "github.com/lxc/incus/v6/internal/server/instance/drivers"
 	"github.com/lxc/incus/v6/internal/server/instance/instancetype"
+	"github.com/lxc/incus/v6/internal/server/logging"
 	"github.com/lxc/incus/v6/internal/server/loki"
 	"github.com/lxc/incus/v6/internal/server/network/ovn"
 	"github.com/lxc/incus/v6/internal/server/network/ovs"
@@ -154,7 +155,8 @@ type Daemon struct {
 	serverName      string
 	serverClustered bool
 
-	lokiClient *loki.Client
+	lokiClient        *loki.Client
+	loggingController *logging.LoggingController
 
 	// Authorization.
 	authorizer auth.Authorizer
@@ -1489,6 +1491,12 @@ func (d *Daemon) init() error {
 		}
 	}
 
+	d.loggingController = logging.NewLoggingController(d.globalConfig.Logging(), d.internalListener)
+	err = d.loggingController.Setup()
+	if err != nil {
+		return err
+	}
+
 	// Setup syslog listener.
 	if syslogSocketEnabled {
 		err = d.setupSyslogSocket(true)
@@ -1801,6 +1809,10 @@ func (d *Daemon) Stop(ctx context.Context, sig os.Signal) error {
 
 	// Cancelling the context will make everyone aware that we're shutting down.
 	d.shutdownCancel()
+
+	if d.loggingController != nil {
+		d.loggingController.Shutdown()
+	}
 
 	if d.gateway != nil {
 		d.stopClusterTasks()

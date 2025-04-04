@@ -208,6 +208,10 @@ func (m *Map) set(name string, value string, initial bool) (bool, error) {
 		return true, nil
 	}
 
+	if IsLoggingConfig(name) {
+		m.schema[name] = GetLoggingRuleForKey(name)
+	}
+
 	key, ok := m.schema[name]
 	if !ok {
 		return false, fmt.Errorf("unknown key")

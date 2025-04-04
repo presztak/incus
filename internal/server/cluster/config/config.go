@@ -322,6 +322,27 @@ func (c *Config) OpenFGA() (apiURL string, apiToken string, storeID string) {
 	return c.m.GetString("openfga.api.url"), c.m.GetString("openfga.api.token"), c.m.GetString("openfga.store.id")
 }
 
+func (c *Config) Logging() map[string]map[string]string {
+	result := make(map[string]map[string]string)
+	for k, v := range c.m.Dump() {
+		if !strings.HasPrefix(k, "logging.") {
+			continue
+		}
+
+		fields := strings.Split(k, ".")
+		loggingKey := strings.Join(fields[2:], ".")
+
+		// Check if the inner map exists; if not, initialize it
+		if _, exists := result["syslog"]; !exists {
+			result["syslog"] = make(map[string]string)
+		}	
+
+		result["syslog"][loggingKey] = v
+	}
+
+	return result
+}
+
 // Dump current configuration keys and their values. Keys with values matching
 // their defaults are omitted.
 func (c *Config) Dump() map[string]string {
@@ -802,7 +823,7 @@ var ConfigSchema = config.Schema{
 	//  scope: global
 	//  defaultdesc: `info`
 	//  shortdesc: Minimum log level to send to the Loki server
-	"loki.loglevel": {Validator: logLevelValidator, Default: logrus.InfoLevel.String()},
+	"loki.loglevel": {Validator: config.LogLevelValidator, Default: logrus.InfoLevel.String()},
 
 	// gendoc:generate(entity=server, group=loki, key=loki.types)
 	// Specify a comma-separated list of events to send to the Loki server.
@@ -960,19 +981,6 @@ var ConfigSchema = config.Schema{
 
 func expiryValidator(value string) error {
 	_, err := internalInstance.GetExpiry(time.Time{}, value)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func logLevelValidator(value string) error {
-	if value == "" {
-		return nil
-	}
-
-	_, err := logrus.ParseLevel(value)
 	if err != nil {
 		return err
 	}

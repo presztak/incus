@@ -2,6 +2,8 @@ package config
 
 import (
 	"os/exec"
+
+	"github.com/sirupsen/logrus"
 )
 
 // AvailableExecutable checks that the given value is the name of an executable
@@ -14,3 +16,17 @@ func AvailableExecutable(value string) error {
 	_, err := exec.LookPath(value)
 	return err
 }
+
+func LogLevelValidator(value string) error {
+	if value == "" {
+		return nil
+	}
+
+	_, err := logrus.ParseLevel(value)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
