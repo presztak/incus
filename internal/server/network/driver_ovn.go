@@ -4852,7 +4852,12 @@ func (n *ovn) InstanceDevicePortStart(opts *OVNInstanceNICSetupOpts, securityACL
 				}
 
 				// Add NIC port to ACL port group.
-				portGroupName := acl.OVNACLPortGroupName(aclID)
+				var portGroupName networkOVN.OVNPortGroup
+				if opts.DeviceConfig["security.acls.default.egress.action"] == "allow" {
+					portGroupName = acl.OVNACLReversedPortGroupName(aclID)
+				} else {
+					portGroupName = acl.OVNACLPortGroupName(aclID)
+				}
 				acl.OVNPortGroupInstanceNICSchedule(portUUID, addChangeSet, portGroupName)
 				n.logger.Debug("Scheduled logical port for ACL port group addition", logger.Ctx{"networkACL": aclName, "portGroup": portGroupName, "port": instancePortName})
 			}
@@ -4872,7 +4877,12 @@ func (n *ovn) InstanceDevicePortStart(opts *OVNInstanceNICSetupOpts, securityACL
 			}
 
 			// Remove NIC port from ACL port group.
-			portGroupName := acl.OVNACLPortGroupName(aclID)
+			var portGroupName networkOVN.OVNPortGroup
+			if opts.DeviceConfig["security.acls.default.egress.action"] == "allow" {
+				portGroupName = acl.OVNACLReversedPortGroupName(aclID)
+			} else {
+				portGroupName = acl.OVNACLPortGroupName(aclID)
+			}
 			acl.OVNPortGroupInstanceNICSchedule(portUUID, removeChangeSet, portGroupName)
 			n.logger.Debug("Scheduled logical port for ACL port group removal", logger.Ctx{"networkACL": aclName, "portGroup": portGroupName, "port": instancePortName})
 		}
