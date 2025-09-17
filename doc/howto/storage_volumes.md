@@ -100,7 +100,7 @@ Access to cached data is not affected by the limit.
 (storage-volume-special)=
 ### Use the volume for backups or images
 
-Instead of attaching a custom volume to an instance as a disk device, you can also use it as a special kind of volume to store {ref}`backups <backups>` or {ref}`images <about-images>`.
+Instead of attaching a custom volume to an instance as a disk device, you can also use it as a special kind of volume to store {ref}`backups <backups>`, {ref}`images <about-images>` or logs.
 
 To do so, you must set the corresponding {ref}`server configuration <server-options-misc>`:
 
@@ -111,6 +111,10 @@ To do so, you must set the corresponding {ref}`server configuration <server-opti
 - To use a custom volume to store the image tarballs:
 
       incus config set storage.images_volume <pool_name>/<volume_name>
+
+- To use a custom volume to store the log files:
+
+      incus config set storage.logs_volume <pool_name>/<volume_name>
 
 (storage-configure-volume)=
 ## Configure storage volume settings

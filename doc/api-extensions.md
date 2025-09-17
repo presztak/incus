@@ -2891,3 +2891,9 @@ configure the Out Of Memory score for the container or virtual-machine.
 This adds support for overriding both configuration and devices during
 backup import by using the `X-Incus-config` and `X-Incus-devices` HTTP
 headers.
+
+## `storage_logs_volume`
+
+This introduces a new configuration key `storage.logs_volume`
+to allow for a storage volume on an existing pool be used for
+storing the log files.

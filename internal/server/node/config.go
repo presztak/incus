@@ -116,6 +116,11 @@ func (c *Config) StorageImagesVolume() string {
 	return c.m.GetString("storage.images_volume")
 }
 
+// StorageLogsVolume returns the name of the pool/volume to use for storing log files.
+func (c *Config) StorageLogsVolume() string {
+	return c.m.GetString("storage.logs_volume")
+}
+
 // LinstorSatelliteName returns the LINSTOR satellite name override.
 func (c *Config) LinstorSatelliteName() string {
 	return c.m.GetString("storage.linstor.satellite.name")
@@ -278,6 +283,14 @@ var ConfigSchema = config.Schema{
 	//  scope: local
 	//  shortdesc: Volume to use to store the image tarballs
 	"storage.images_volume": {},
+
+	// gendoc:generate(entity=server, group=miscellaneous, key=storage.logs_volume)
+	// Specify the volume using the syntax `POOL/VOLUME`.
+	// ---
+	//  type: string
+	//  scope: local
+	//  shortdesc: Volume to use to store the log files
+	"storage.logs_volume": {},
 
 	// LINSTOR
 
