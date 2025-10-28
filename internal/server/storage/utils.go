@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -572,7 +573,7 @@ func validateVolumeCommonRules(vol drivers.Volume) map[string]func(string) error
 // VM Format A: Separate metadata tarball and root qcow2 file.
 //   - Unpack metadata tarball into mountPath.
 //   - Check rootBlockPath is a file and convert qcow2 file into raw format in rootBlockPath.
-func ImageUnpack(imageFile string, vol drivers.Volume, destBlockFile string, sysOS *sys.OS, allowUnsafeResize bool, targetIsZero bool, tracker *ioprogress.ProgressTracker) (int64, error) {
+func ImageUnpack(imageFile string, vol drivers.Volume, destBlockFile string, sysOS *sys.OS, allowUnsafeResize bool, targetIsZero bool, tracker *ioprogress.ProgressTracker, targetFormat string) (int64, error) {
 	l := logger.Log.AddContext(logger.Ctx{"imageFile": imageFile, "volName": vol.Name()})
 	l.Info("Image unpack started")
 	defer l.Info("Image unpack stopped")
@@ -693,6 +694,29 @@ func ImageUnpack(imageFile string, vol drivers.Volume, destBlockFile string, sys
 					return -1, fmt.Errorf("Error increasing volume size: %w", err)
 				}
 			}
+		}
+
+		if targetFormat == "qcow2" {
+			l.Debug("Copying qcow2 image to disk", logger.Ctx{"imgPath": imgPath, "dstPath": dstPath})
+
+			from, err := os.OpenFile(imgPath, unix.O_RDONLY, 0)
+			if err != nil {
+				return -1, err
+			}
+			defer from.Close()
+
+			to, err := os.OpenFile(dstPath, unix.O_WRONLY, 0)
+			if err != nil {
+				return -1, err
+			}
+			defer to.Close()
+
+			_, err = io.Copy(to, from)
+			if err != nil {
+				return -1, err
+			}
+
+			return imgInfo.VirtualSize, nil
 		}
 
 		// Convert the qcow2 format to a raw block device.
