@@ -3065,8 +3065,7 @@ func (b *backend) CreateInstanceSnapshot(inst instance.Instance, src instance.In
 	volStorageName := project.Instance(inst.Project().Name, inst.Name())
 
 	// Get the volume.
-	// There's no need to pass config as it's not needed when creating volume snapshots.
-	vol := b.GetVolume(volType, contentType, volStorageName, nil)
+	vol := b.GetVolume(volType, contentType, volStorageName, srcDBVol.Config)
 
 	// Lock this operation to ensure that the only one snapshot is made at the time.
 	// Other operations will wait for this one to finish.
