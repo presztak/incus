@@ -58,6 +58,25 @@ func (d *lvm) CreateVolume(vol Volume, filler *VolumeFiller, op *operations.Oper
 		reverter.Add(func() { _ = d.DeleteVolume(fsVol, op) })
 	}
 
+	// Format LV as qcow2 (lvmcluster).
+	if d.clustered && vol.contentType == ContentTypeBlock {
+		// Get the device path.
+		devPath, err := d.GetVolumeDiskPath(vol)
+		if err != nil {
+			return err
+		}
+
+		qcow2SizeBytes, err := d.roundedSizeBytesString(vol.ConfigSize())
+		if err != nil {
+			return err
+		}
+
+		_, err = subprocess.RunCommand("qemu-img", "create", "-f", "qcow2", devPath, fmt.Sprintf("%db", qcow2SizeBytes))
+		if err != nil {
+			return err
+		}
+	}
+
 	err = vol.MountTask(func(mountPath string, op *operations.Operation) error {
 		// Run the volume filler function if supplied.
 		if filler != nil && filler.Fill != nil {
