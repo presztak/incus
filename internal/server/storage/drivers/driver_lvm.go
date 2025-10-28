@@ -57,6 +57,19 @@ func (d *lvm) load() error {
 		"storage_prefix_bucket_names_with_project":           nil,
 	}
 
+	// Validate the required binaries.
+	tools := []string{"lvm"}
+	if d.clustered {
+		tools = append(tools, []string{"lvmlockctl", "sanlock", "btrfs"}...)
+	}
+
+	for _, tool := range tools {
+		_, err := exec.LookPath(tool)
+		if err != nil {
+			return fmt.Errorf("Required tool %q is missing", tool)
+		}
+	}
+
 	// Done if previously loaded.
 	if lvmLoaded {
 		return nil
@@ -71,19 +84,6 @@ func (d *lvm) load() error {
 
 		if !ok {
 			return errors.New("IncusOS service \"lvm\" isn't currently enabled")
-		}
-	}
-
-	// Validate the required binaries.
-	tools := []string{"lvm"}
-	if d.clustered {
-		tools = append(tools, []string{"lvmlockctl", "sanlock"}...)
-	}
-
-	for _, tool := range tools {
-		_, err := exec.LookPath(tool)
-		if err != nil {
-			return fmt.Errorf("Required tool %q is missing", tool)
 		}
 	}
 
@@ -723,6 +723,11 @@ func (d *lvm) Update(changedConfig map[string]string) error {
 	_, changed = changedConfig["volume.lvm.stripes.size"]
 	if changed && d.usesThinpool() {
 		return errors.New("volume.lvm.stripes.size cannot be changed when using thin pool")
+	}
+
+	_, changed = changedConfig["volume.block.type"]
+	if changed {
+		return errors.New("volume.block.type cannot be changed after creation")
 	}
 
 	if changedConfig["lvm.vg_name"] != "" {
