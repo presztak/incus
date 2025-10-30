@@ -10379,3 +10379,18 @@ func (d *qemu) GuestOS() string {
 
 	return "unknown"
 }
+
+// CreateInternalSnapshot creates an internal snapshot.
+func (d *qemu) CreateInternalSnapshot(deviceName string, snapshotName string) error {
+	monitor, err := d.qmpConnect()
+	if err != nil {
+		return err
+	}
+
+	err = monitor.BlockDevSnapshotInternal(deviceName, snapshotName)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

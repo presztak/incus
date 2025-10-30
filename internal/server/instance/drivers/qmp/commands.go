@@ -1146,6 +1146,24 @@ func (m *Monitor) BlockDevSnapshot(deviceNodeName string, snapshotNodeName strin
 	return nil
 }
 
+// BlockDevSnapshotInternal creates an internal snapshot of a device using the specified snapshot device.
+func (m *Monitor) BlockDevSnapshotInternal(deviceName string, snapshotName string) error {
+	var args struct {
+		Device string `json:"device"`
+		Name   string `json:"name"`
+	}
+
+	args.Device = deviceName
+	args.Name = snapshotName
+
+	err := m.Run("blockdev-snapshot-internal-sync", args, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // blockJobWaitReady waits until the specified jobID is ready, errored or missing.
 // Returns nil if the job is ready, otherwise an error.
 func (m *Monitor) blockJobWaitReady(jobID string) error {
