@@ -4500,13 +4500,14 @@ func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int
 	}
 
 	var isBlockDev bool
+	var srcDevPath string
 
 	// Detect device caches and I/O modes.
 	if isRBDImage {
 		// For RBD, we want writeback to allow for the system-configured "rbd cache" to take effect if present.
 		cacheMode = "writeback"
 	} else {
-		srcDevPath := driveConf.DevPath // This should not be used for passing to QEMU, only for probing.
+		srcDevPath = driveConf.DevPath // This should not be used for passing to QEMU, only for probing.
 
 		// Detect if existing file descriptor format is being supplied.
 		if strings.HasPrefix(driveConf.DevPath, fmt.Sprintf("%s:", device.DiskFileDescriptorMountPrefix)) {
@@ -4775,6 +4776,7 @@ func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int
 		defer reverter.Fail()
 
 		nodeName := d.blockNodeName(escapedDeviceName)
+		d.logger.Error("Node-name", logger.Ctx{"node-name": nodeName})
 
 		if isRBDImage {
 			secretID := fmt.Sprintf("pool_%s_%s", blockDev["pool"], blockDev["user"])
@@ -4812,7 +4814,28 @@ func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int
 				_ = m.RemoveFDFromFDSet(nodeName)
 			})
 
-			blockDev["filename"] = fmt.Sprintf("/dev/fdset/%d", info.ID)
+			isQcow2, err := d.isQCOW2(srcDevPath)
+			d.logger.Error("Is qcow2", logger.Ctx{"qcow2": isQcow2, "err": err});
+			if isQcow2 {
+				d.logger.Error("Mount as root qcow2")
+				blockDev = map[string]any{
+					"driver": "qcow2",
+					"discard":   "unmap", // Forward as an unmap request. This is the same as `discard=on` in the qemu config file.
+					"node-name": d.blockNodeName(escapedDeviceName),
+					"read-only": false,
+					"file": map[string]any{
+						"driver":    "host_device",
+						"filename": fmt.Sprintf("/dev/fdset/%d", info.ID),
+						"aio": aioMode,
+						"cache": map[string]any{
+							"direct":   directCache,
+							"no-flush": noFlushCache,
+						},
+					},
+				}
+			} else {
+				blockDev["filename"] = fmt.Sprintf("/dev/fdset/%d", info.ID)
+			}
 		}
 
 		err := m.AddBlockDevice(blockDev, qemuDev, bus == "usb")
@@ -10378,4 +10401,49 @@ func (d *qemu) GuestOS() string {
 	}
 
 	return "unknown"
+}
+
+// CreateInternalSnapshot creates an internal snapshot.
+func (d *qemu) CreateInternalSnapshot(snapshotName string) error {
+	monitor, err := d.qmpConnect()
+	if err != nil {
+		return err
+	}
+
+	devName, _ , err := d.getRootDiskDevice()
+	if err != nil {
+		return err
+	}
+
+	escapedDeviceName := linux.PathNameEncode(devName)
+	nodeName := d.blockNodeName(escapedDeviceName)
+
+	err = monitor.BlockDevSnapshotInternal(nodeName, snapshotName)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (b *qemu) isQCOW2(devPath string) (bool, error) {
+	imgJSON, err := subprocess.RunCommand("qemu-img", "info", "--output=json", devPath)
+	if err != nil {
+		return false, err
+	}
+
+	imgInfo := struct {
+		Format      string `json:"format"`
+	}{}
+
+	err = json.Unmarshal([]byte(imgJSON), &imgInfo)
+	if err != nil {
+		return false, fmt.Errorf("Failed unmarshalling image info %q: %w (%q)", devPath, err, imgJSON)
+	}
+
+	if imgInfo.Format != "qcow2" {
+		return false, nil
+	}
+
+	return true, nil
 }

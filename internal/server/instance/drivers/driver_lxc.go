@@ -9371,3 +9371,7 @@ func (d *lxc) setupCredentials(update bool) error {
 func (d *lxc) GuestOS() string {
 	return "linux"
 }
+
+func (d *lxc) CreateInternalSnapshot(snapName string) error {
+	return nil
+}

@@ -98,6 +98,7 @@ type Instance interface {
 	Backups() ([]backup.InstanceBackup, error)
 	UpdateBackupFile() error
 	CanLiveMigrate() bool
+	CreateInternalSnapshot(snapshotName string) error
 
 	// Config handling.
 	Rename(newName string, applyTemplateTrigger bool) error
