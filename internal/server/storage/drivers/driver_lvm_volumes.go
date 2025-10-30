@@ -1186,21 +1186,6 @@ func (d *lvm) CreateVolumeSnapshot(snapVol Volume, op *operations.Operation) err
 			return fmt.Errorf("Creating an lvmcluster snapshot with the 'block.type' different than 'qcow2' is prohibited.")
 		}
 
-		parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
-		parentVol := NewVolume(d, d.name, snapVol.volType, snapVol.contentType, parentName, snapVol.config, snapVol.poolConfig)
-
-		// Get the device path.
-		devPath, err := d.GetVolumeDiskPath(parentVol)
-		if err != nil {
-			return err
-		}
-
-		_, err = subprocess.RunCommand("qemu-img", "snapshot", "-c", snapVol.name, devPath)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	}
 
 	parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
