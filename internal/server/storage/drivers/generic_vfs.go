@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -242,6 +243,66 @@ func genericVFSMigrateVolume(d Driver, s *state.State, vol Volume, conn io.ReadW
 		return nil
 	}
 
+	// Define function to send a block volume.
+	sendBlockVolQcow2 := func(vol Volume, conn io.ReadWriteCloser) error {
+		// Close when done to indicate to target side we are finished sending this volume.
+		defer func() { _ = conn.Close() }()
+
+		var wrapper *ioprogress.ProgressTracker
+		if volSrcArgs.TrackProgress {
+			wrapper = localMigration.ProgressTracker(op, "block_progress", vol.name)
+		}
+
+		path, err := d.GetVolumeDiskPath(vol)
+		if err != nil {
+			return fmt.Errorf("Error getting VM block volume disk path: %w", err)
+		}
+
+		d.Logger().Error("Sending qcow2 block volume", logger.Ctx{"volName": vol.name, "path": path})
+
+		connect := exec.Command("qemu-nbd", "--connect=/dev/nbd0", path)
+		if err := connect.Run(); err != nil {
+			return err
+		}
+
+		defer func() {
+			disconnect := exec.Command("qemu-nbd", "--disconnect", "/dev/nbd0")
+			disconnect.Run() // ignore errors
+		}()
+
+		r, w := io.Pipe()
+
+		// Setup progress tracker.
+		fromPipe := io.ReadCloser(r)
+		if wrapper != nil {
+			fromPipe = &ioprogress.ProgressReader{
+				ReadCloser: fromPipe,
+				Tracker:    wrapper,
+			}
+		}
+
+		ddCmd := exec.Command("dd", "if=/dev/nbd0", "bs=4M")
+		ddCmd.Stdout = w
+		ddCmd.Stderr = os.Stderr
+
+		if err := ddCmd.Start(); err != nil {
+			return err
+		}
+
+		// When dd finishes, close the pipe writer
+		go func() {
+			ddCmd.Wait()
+			w.Close()
+		}()
+
+		_, err = io.Copy(conn, fromPipe)
+		if err != nil {
+			return fmt.Errorf("Error copying %q to migration connection: %w", path, err)
+		}
+
+		return nil
+	}
+
 	// Send all snapshots to target.
 	for _, snapName := range volSrcArgs.Snapshots {
 		snapshot, err := vol.NewSnapshot(snapName)
@@ -259,7 +320,7 @@ func genericVFSMigrateVolume(d Driver, s *state.State, vol Volume, conn io.ReadW
 			}
 
 			if vol.IsVMBlock() || (vol.contentType == ContentTypeBlock && vol.volType == VolumeTypeCustom) {
-				err = sendBlockVol(snapshot, conn)
+				err = sendBlockVolQcow2(snapshot, conn)
 				if err != nil {
 					return err
 				}
@@ -373,6 +434,58 @@ func genericVFSCreateVolumeFromMigration(d Driver, initVolume func(vol Volume) (
 		return to.Close()
 	}
 
+	recvBlockVolQcow2 := func(volName string, conn io.ReadWriteCloser, path string) error {
+		var wrapper *ioprogress.ProgressTracker
+		if volTargetArgs.TrackProgress {
+			wrapper = localMigration.ProgressTracker(op, "block_progress", volName)
+		}
+
+		// Setup progress tracker.
+		fromPipe := io.ReadCloser(conn)
+		if wrapper != nil {
+			fromPipe = &ioprogress.ProgressReader{
+				ReadCloser: fromPipe,
+				Tracker:    wrapper,
+			}
+		}
+
+		connect := exec.Command("qemu-nbd", "--connect=/dev/nbd0", path)
+		if err := connect.Run(); err != nil {
+			return err
+		}
+
+		defer func() {
+			disconnect := exec.Command("qemu-nbd", "--disconnect", "/dev/nbd0")
+			disconnect.Run() // ignore errors
+		}()
+
+		r, w := io.Pipe()
+
+		ddCmd := exec.Command("dd", "of=/dev/nbd0", "bs=4M")
+		ddCmd.Stdin = r
+		ddCmd.Stderr = os.Stderr
+
+		if err := ddCmd.Start(); err != nil {
+			return err
+		}
+
+		// When dd finishes, close the pipe writer
+		go func() {
+			ddCmd.Wait()
+			w.Close()
+		}()
+
+		d.Logger().Error("Receiving block volume started", logger.Ctx{"volName": volName, "path": path})
+		defer d.Logger().Error("Receiving block volume stopped", logger.Ctx{"volName": volName, "path": path})
+
+		_, err := io.Copy(w, fromPipe)
+		if err != nil {
+			return fmt.Errorf("Error copying from migration connection to %q: %w", path, err)
+		}
+
+		return nil
+	}
+
 	// Ensure the volume is mounted.
 	err := vol.MountTask(func(mountPath string, op *operations.Operation) error {
 		var err error
@@ -472,7 +585,7 @@ func genericVFSCreateVolumeFromMigration(d Driver, initVolume func(vol Volume) (
 
 		// Receive the block volume next (if needed).
 		if vol.IsVMBlock() || (IsContentBlock(vol.contentType) && vol.volType == VolumeTypeCustom) {
-			err = recvBlockVol(vol.name, conn, pathBlock)
+			err = recvBlockVolQcow2(vol.name, conn, pathBlock)
 			if err != nil {
 				return err
 			}

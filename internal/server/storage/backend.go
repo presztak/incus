@@ -1956,10 +1956,6 @@ func (b *backend) CreateInstanceFromMigration(inst instance.Instance, conn io.Re
 		volumeDescription = args.Description
 	}
 
-	if b.driver.Info().TargetFormat == "qcow2" {
-		return errors.New("Migrating volumes with 'block.type' set to qcow2 is not supported")
-	}
-
 	volStorageName := project.Instance(inst.Project().Name, inst.Name())
 	vol := b.GetVolume(volType, contentType, volStorageName, volumeConfig)
 
@@ -2537,10 +2533,6 @@ func (b *backend) MigrateInstance(inst instance.Instance, conn io.ReadWriteClose
 	dbVol, err := VolumeDBGet(b, inst.Project().Name, inst.Name(), volType)
 	if err != nil {
 		return err
-	}
-
-	if dbVol.Config["block.type"] == "qcow2" {
-		return errors.New("Migrating volumes with 'block.type' set to qcow2 is not supported")
 	}
 
 	// Generate the effective root device volume for instance.
@@ -5099,16 +5091,6 @@ func (b *backend) MigrateCustomVolume(projectName string, conn io.ReadWriteClose
 		return fmt.Errorf("Requested snapshots count (%d) doesn't match volume snapshot config count (%d)", len(args.Snapshots), len(args.Info.Config.VolumeSnapshots))
 	}
 
-	// Load storage volume from database.
-	dbVol, err := VolumeDBGet(b, projectName, args.Name, drivers.VolumeTypeCustom)
-	if err != nil {
-		return err
-	}
-
-	if dbVol.Config["block.type"] == "qcow2" {
-		return errors.New("Migrating volumes with 'block.type' set to qcow2 is not supported")
-	}
-
 	// Send migration index header frame with volume info and wait for receipt.
 	resp, err := b.migrationIndexHeaderSend(l, args.IndexHeaderVersion, conn, args.Info)
 	if err != nil {
@@ -5158,10 +5140,6 @@ func (b *backend) CreateCustomVolumeFromMigration(projectName string, conn io.Re
 		volumeConfig = dbVol.Config
 	} else {
 		volumeConfig = args.Config
-	}
-
-	if b.driver.Info().TargetFormat == "qcow2" {
-		return errors.New("Migrating volumes with 'block.type' set to qcow2 is not supported")
 	}
 
 	// Check if the volume exists on storage.
