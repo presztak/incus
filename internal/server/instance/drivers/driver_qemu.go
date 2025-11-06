@@ -4297,11 +4297,12 @@ func (d *qemu) addRootDriveConfig(qemuDev map[string]any, mountInfo *storagePool
 
 	// Generate a new device config with the root device path expanded.
 	driveConf := deviceConfig.MountEntryItem{
-		DevName:    rootDriveConf.DevName,
-		DevPath:    mountInfo.DiskPath,
-		Opts:       rootDriveConf.Opts,
-		TargetPath: rootDriveConf.TargetPath,
-		Limits:     rootDriveConf.Limits,
+		DevName:     rootDriveConf.DevName,
+		DevPath:     mountInfo.DiskPath,
+		BackingPath: mountInfo.BackingPath,
+		Opts:        rootDriveConf.Opts,
+		TargetPath:  rootDriveConf.TargetPath,
+		Limits:      rootDriveConf.Limits,
 	}
 
 	if d.storagePool.Driver().Info().Remote {
@@ -4810,6 +4811,8 @@ func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int
 				return fmt.Errorf("Failed sending file descriptor of %q for disk device %q: %w", f.Name(), driveConf.DevName, err)
 			}
 
+			d.logger.Error("Load node", logger.Ctx{"node": nodeName, "devPath": driveConf.DevPath, "info": info});
+
 			reverter.Add(func() {
 				_ = m.RemoveFDFromFDSet(nodeName)
 			})
@@ -4832,6 +4835,15 @@ func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int
 							"no-flush": noFlushCache,
 						},
 					},
+				}
+
+				if len(driveConf.BackingPath) > 0 {
+					backingBlockDev, err := d.qcow2BlockDev(m, nodeName, aioMode, directCache, noFlushCache, permissions, readonly, driveConf.BackingPath, 0)
+					if err != nil {
+						return nil
+					}
+
+					blockDev["backing"] = backingBlockDev
 				}
 			} else {
 				blockDev["filename"] = fmt.Sprintf("/dev/fdset/%d", info.ID)
@@ -10446,4 +10458,50 @@ func (b *qemu) isQCOW2(devPath string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (d *qemu) qcow2BlockDev(m *qmp.Monitor, nodeName string, aioMode string, directCache bool, noFlushCache bool, permissions int, readonly bool, backingPaths []string, iter int) (map[string]any, error) {
+	devName := backingPaths[0]
+	backingNodeName := fmt.Sprintf("%s_backing%d", nodeName, iter)
+
+	f, err := os.OpenFile(devName, permissions, 0)
+	if err != nil {
+		return nil, fmt.Errorf("Failed opening file descriptor for disk device %q: %w", devName, err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	info, err := m.SendFileWithFDSet(backingNodeName, f, readonly)
+	if err != nil {
+		return nil, fmt.Errorf("Failed sending file descriptor of %q for disk device %q: %w", f.Name(), devName, err)
+	}
+
+	d.logger.Error("Load node", logger.Ctx{"node": backingNodeName, "devPath": devName, "info": info});
+
+	blockDev := map[string]any{
+		"driver": "qcow2",
+		"discard":   "unmap", // Forward as an unmap request. This is the same as `discard=on` in the qemu config file.
+		"node-name": backingNodeName,
+		"read-only": false,
+		"file": map[string]any{
+		"driver":    "host_device",
+		"filename": fmt.Sprintf("/dev/fdset/%d", info.ID),
+			"aio": aioMode,
+			"cache": map[string]any{
+				"direct":   directCache,
+				"no-flush": noFlushCache,
+			},
+		},
+	}
+
+	if len(backingPaths) > 1 {
+		backingBlockDev, err := d.qcow2BlockDev(m, nodeName, aioMode, directCache, noFlushCache, permissions, readonly, backingPaths[1:], iter+1)
+		if err != nil {
+			return nil, err
+		}
+
+		blockDev["backing"] = backingBlockDev
+	}
+
+	return blockDev, nil
 }

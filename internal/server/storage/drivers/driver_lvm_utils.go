@@ -573,6 +573,11 @@ func (d *lvm) lvmPath(vgName string, volType VolumeType, contentType ContentType
 	return fmt.Sprintf("%s/%s", vgName, fullVolName)
 }
 
+// lvmDevFullPath returns the /dev/VG/LV path for the LV.
+func (d *lvm) lvmDevFullPath(pathName string) string {
+	return fmt.Sprintf("/dev/%s", pathName)
+}
+
 // lvmDevPath returns the /dev path for the LV.
 func (d *lvm) lvmDevPath(pathName string) (string, error) {
 	// Get the block dev.
@@ -871,7 +876,7 @@ func (d *lvm) parseLogicalVolumeSnapshot(parent Volume, lvmVolName string) strin
 func (d *lvm) activateVolume(vol Volume) (bool, error) {
 	var volPath string
 
-	if d.usesThinpool() {
+	if d.usesThinpool() || vol.Config()["block.type"] == "qcow2" {
 		volPath = d.lvmPath(d.config["lvm.vg_name"], vol.volType, vol.contentType, vol.name)
 	} else {
 		// Use parent for non-thinpool vols as activating the parent volume also activates its snapshots.
@@ -894,7 +899,7 @@ func (d *lvm) activateVolume(vol Volume) (bool, error) {
 	lvmActivation.Lock()
 	defer lvmActivation.Unlock()
 
-	if d.clustered {
+	if d.clustered && vol.Config()["block.type"] != "qcow2" {
 		_, err := subprocess.RunCommand("lvchange", "--activate", "sy", "--ignoreactivationskip", volPath)
 		if err != nil {
 			return false, fmt.Errorf("Failed to activate LVM logical volume %q: %w", volPath, err)
@@ -906,7 +911,7 @@ func (d *lvm) activateVolume(vol Volume) (bool, error) {
 		}
 	}
 
-	d.logger.Debug("Activated logical volume", logger.Ctx{"volName": vol.Name(), "dev": volPath})
+	d.logger.Error("Activated logical volume", logger.Ctx{"volName": vol.Name(), "dev": volPath})
 
 	return true, nil
 }

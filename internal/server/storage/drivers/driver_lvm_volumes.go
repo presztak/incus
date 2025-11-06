@@ -1176,7 +1176,10 @@ func (d *lvm) BackupVolume(vol Volume, writer instancewriter.InstanceWriter, _ b
 
 // CreateVolumeSnapshot creates a snapshot of a volume.
 func (d *lvm) CreateVolumeSnapshot(snapVol Volume, op *operations.Operation) error {
-	// Perform validation
+	parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
+	parentVol := NewVolume(d, d.name, snapVol.volType, snapVol.contentType, parentName, snapVol.config, snapVol.poolConfig)
+	snapPath := snapVol.MountPath()
+
 	if d.isRemote() && snapVol.ContentType() == ContentTypeBlock {
 		if util.IsTrue(snapVol.ExpandedConfig("security.shared")) {
 			return fmt.Errorf("Creating an lvmcluster snapshot with the 'security.shared' flag enabled is prohibited.")
@@ -1185,11 +1188,48 @@ func (d *lvm) CreateVolumeSnapshot(snapVol Volume, op *operations.Operation) err
 		if snapVol.ExpandedConfig("block.type") != "qcow2" {
 			return fmt.Errorf("Creating an lvmcluster snapshot with the 'block.type' different than 'qcow2' is prohibited.")
 		}
-	}
 
-	parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
-	parentVol := NewVolume(d, d.name, snapVol.volType, snapVol.contentType, parentName, snapVol.config, snapVol.poolConfig)
-	snapPath := snapVol.MountPath()
+		parentVolPath := d.lvmPath(d.config["lvm.vg_name"], parentVol.volType, parentVol.contentType, parentName)
+		snapVolPath := d.lvmPath(d.config["lvm.vg_name"], snapVol.volType, snapVol.contentType, snapVol.name)
+
+		// For VMs, also snapshot the filesystem.
+		if snapVol.IsVMBlock() {
+			parentFSVol := parentVol.NewVMBlockFilesystemVolume()
+			fsVol := snapVol.NewVMBlockFilesystemVolume()
+			_, err := d.createLogicalVolumeSnapshot(d.config["lvm.vg_name"], parentFSVol, fsVol, true, d.usesThinpool())
+			if err != nil {
+				return fmt.Errorf("Error creating LVM logical volume snapshot: %w", err)
+			}
+		}
+
+		err := d.renameLogicalVolume(parentVolPath, snapVolPath)
+		if err != nil {
+			return fmt.Errorf("Error temporarily renaming original LVM logical volume: %w", err)
+		}
+
+		err = d.createLogicalVolume(d.config["lvm.vg_name"], d.thinpoolName(), parentVol, d.usesThinpool())
+		if err != nil {
+			return fmt.Errorf("Error creating LVM logical volume: %w", err)
+		}
+
+		snapVolDevPath := d.lvmDevFullPath(snapVolPath)
+		parentVolDevPath := d.lvmDevFullPath(parentVolPath)
+		err = parentVol.MountTask(func(mountPath string, op *operations.Operation) error {
+			return snapVol.MountTask(func(mountPath string, op *operations.Operation) error {
+				_, err = subprocess.RunCommand("qemu-img", "create", "-F", "qcow2", "-b", snapVolDevPath, "-f", "qcow2", parentVolDevPath)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			}, op)
+		}, op)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
 
 	// Create the parent directory.
 	err := createParentSnapshotDirIfMissing(d.name, snapVol.volType, parentName)
@@ -1539,6 +1579,31 @@ func (d *lvm) RestoreVolume(vol Volume, snapshotName string, op *operations.Oper
 
 	reverter := revert.New()
 	defer reverter.Fail()
+
+	if d.isRemote() && snapVol.ContentType() == ContentTypeBlock {
+		parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
+		parentVol := NewVolume(d, d.name, snapVol.volType, snapVol.contentType, parentName, snapVol.config, snapVol.poolConfig)
+		parentVolPath := d.lvmPath(d.config["lvm.vg_name"], parentVol.volType, parentVol.contentType, parentName)
+		snapVolPath := d.lvmPath(d.config["lvm.vg_name"], snapVol.volType, snapVol.contentType, snapVol.name)
+
+		snapVolDevPath := d.lvmDevFullPath(snapVolPath)
+		parentVolDevPath := d.lvmDevFullPath(parentVolPath)
+		err = parentVol.MountTask(func(mountPath string, op *operations.Operation) error {
+			return snapVol.MountTask(func(mountPath string, op *operations.Operation) error {
+				_, err = subprocess.RunCommand("qemu-img", "create", "-F", "qcow2", "-b", snapVolDevPath, "-f", "qcow2", parentVolDevPath)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			}, op)
+		}, op)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
 
 	// If the pool uses thinpools, then the process for restoring a snapshot is as follows:
 	// 1. Rename the original volume to a temporary name (so we can revert later if needed).
