@@ -9372,6 +9372,6 @@ func (d *lxc) GuestOS() string {
 	return "linux"
 }
 
-func (d *lxc) CreateInternalSnapshot(snapName string) error {
+func (d *lxc) CreateQcow2Snapshot(snapName string, backingFilename string) error {
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -1212,22 +1213,6 @@ func (d *lvm) CreateVolumeSnapshot(snapVol Volume, op *operations.Operation) err
 			return fmt.Errorf("Error creating LVM logical volume: %w", err)
 		}
 
-		snapVolDevPath := d.lvmDevFullPath(snapVolPath)
-		parentVolDevPath := d.lvmDevFullPath(parentVolPath)
-		err = parentVol.MountTask(func(mountPath string, op *operations.Operation) error {
-			return snapVol.MountTask(func(mountPath string, op *operations.Operation) error {
-				_, err = subprocess.RunCommand("qemu-img", "create", "-F", "qcow2", "-b", snapVolDevPath, "-f", "qcow2", parentVolDevPath)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			}, op)
-		}, op)
-		if err != nil {
-			return err
-		}
-
 		return nil
 	}
 
@@ -1580,31 +1565,6 @@ func (d *lvm) RestoreVolume(vol Volume, snapshotName string, op *operations.Oper
 	reverter := revert.New()
 	defer reverter.Fail()
 
-	if d.isRemote() && snapVol.ContentType() == ContentTypeBlock {
-		parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
-		parentVol := NewVolume(d, d.name, snapVol.volType, snapVol.contentType, parentName, snapVol.config, snapVol.poolConfig)
-		parentVolPath := d.lvmPath(d.config["lvm.vg_name"], parentVol.volType, parentVol.contentType, parentName)
-		snapVolPath := d.lvmPath(d.config["lvm.vg_name"], snapVol.volType, snapVol.contentType, snapVol.name)
-
-		snapVolDevPath := d.lvmDevFullPath(snapVolPath)
-		parentVolDevPath := d.lvmDevFullPath(parentVolPath)
-		err = parentVol.MountTask(func(mountPath string, op *operations.Operation) error {
-			return snapVol.MountTask(func(mountPath string, op *operations.Operation) error {
-				_, err = subprocess.RunCommand("qemu-img", "create", "-F", "qcow2", "-b", snapVolDevPath, "-f", "qcow2", parentVolDevPath)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			}, op)
-		}, op)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
 	// If the pool uses thinpools, then the process for restoring a snapshot is as follows:
 	// 1. Rename the original volume to a temporary name (so we can revert later if needed).
 	// 2. Create a writable snapshot with the original name from the snapshot being restored.
@@ -1771,6 +1731,18 @@ func (d *lvm) RenameVolumeSnapshot(snapVol Volume, newSnapshotName string, op *o
 	parentName, _, _ := api.GetParentAndSnapshotName(snapVol.name)
 	newSnapVolName := GetSnapshotVolumeName(parentName, newSnapshotName)
 	newVolPath := d.lvmPath(d.config["lvm.vg_name"], snapVol.volType, snapVol.contentType, newSnapVolName)
+
+	// For VMs, also rename the filesystem volume.
+	if snapVol.IsVMBlock() {
+		fsVol := snapVol.NewVMBlockFilesystemVolume()
+		fsVolPath := d.lvmPath(d.config["lvm.vg_name"], fsVol.volType, fsVol.contentType, snapVol.name)
+		newFsVolPath := d.lvmPath(d.config["lvm.vg_name"], fsVol.volType, fsVol.contentType, newSnapVolName)
+		err := d.renameLogicalVolume(fsVolPath, newFsVolPath)
+		if err != nil {
+			return err
+		}
+	}
+
 	err := d.renameLogicalVolume(volPath, newVolPath)
 	if err != nil {
 		return fmt.Errorf("Error renaming LVM logical volume: %w", err)
@@ -1784,4 +1756,9 @@ func (d *lvm) RenameVolumeSnapshot(snapVol Volume, newSnapshotName string, op *o
 	}
 
 	return nil
+}
+
+func (d *lvm) GetQcow2BackingFilePath(vol Volume) (string, error) {
+	pathName := d.lvmPath(d.config["lvm.vg_name"], vol.volType, vol.contentType, vol.name)
+	return filepath.Join("/dev", pathName), nil
 }

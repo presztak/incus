@@ -573,11 +573,6 @@ func (d *lvm) lvmPath(vgName string, volType VolumeType, contentType ContentType
 	return fmt.Sprintf("%s/%s", vgName, fullVolName)
 }
 
-// lvmDevFullPath returns the /dev/VG/LV path for the LV.
-func (d *lvm) lvmDevFullPath(pathName string) string {
-	return fmt.Sprintf("/dev/%s", pathName)
-}
-
 // lvmDevPath returns the /dev path for the LV.
 func (d *lvm) lvmDevPath(pathName string) (string, error) {
 	// Get the block dev.
@@ -911,7 +906,7 @@ func (d *lvm) activateVolume(vol Volume) (bool, error) {
 		}
 	}
 
-	d.logger.Error("Activated logical volume", logger.Ctx{"volName": vol.Name(), "dev": volPath})
+	d.logger.Debug("Activated logical volume", logger.Ctx{"volName": vol.Name(), "dev": volPath})
 
 	return true, nil
 }

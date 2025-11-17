@@ -557,3 +557,7 @@ func (d *common) filesystemFreeze(path string) (func() error, error) {
 func (d *common) CacheVolumeSnapshots(vol Volume) error {
 	return nil
 }
+
+func (d *common) GetQcow2BackingFilePath(vol Volume) (string, error) {
+	return "", ErrNotSupported
+}
