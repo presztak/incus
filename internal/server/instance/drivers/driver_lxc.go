@@ -9389,3 +9389,8 @@ func (d *lxc) GuestOS() string {
 func (d *lxc) CreateQcow2Snapshot(snapName string, backingFilename string) error {
 	return nil
 }
+
+// DeleteQcow2Snapshot deletes a qcow2 snapshot for a running instance. Not supported by containers.
+func (d *lxc) DeleteQcow2Snapshot(snapshotIndex int, backingFilename string) error {
+	return nil
+}

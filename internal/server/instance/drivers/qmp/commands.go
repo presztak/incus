@@ -1150,15 +1150,15 @@ func (m *Monitor) QueryNamedBlockNodes() ([]string, error) {
 }
 
 // ChangeBackingFile changes backing file name for node.
-func (m *Monitor) ChangeBackingFile(nodeName string, backingFilename string) error {
+func (m *Monitor) ChangeBackingFile(deviceNodeName string, imageNodeName string, backingFilename string) error {
 	var args struct {
 		Device      string `json:"device"`
 		NodeName    string `json:"image-node-name"`
 		BackingFile string `json:"backing-file"`
 	}
 
-	args.Device = nodeName
-	args.NodeName = nodeName
+	args.Device = deviceNodeName
+	args.NodeName = imageNodeName
 	args.BackingFile = backingFilename
 
 	err := m.Run("change-backing-file", args, nil)
@@ -1189,7 +1189,7 @@ func (m *Monitor) BlockDevSnapshot(deviceNodeName string, snapshotNodeName strin
 
 // blockJobWaitReady waits until the specified jobID is ready, errored or missing.
 // Returns nil if the job is ready, otherwise an error.
-func (m *Monitor) blockJobWaitReady(jobID string) error {
+func (m *Monitor) blockJobWaitReady(jobID string, exitOnNotFound bool) error {
 	for {
 		var resp struct {
 			Return []struct {
@@ -1221,8 +1221,10 @@ func (m *Monitor) blockJobWaitReady(jobID string) error {
 			found = true
 		}
 
-		if !found {
+		if !found && !exitOnNotFound {
 			return errors.New("Specified block job not found")
+		} else if !found && exitOnNotFound {
+			return nil
 		}
 
 		time.Sleep(1 * time.Second)
@@ -1230,28 +1232,37 @@ func (m *Monitor) blockJobWaitReady(jobID string) error {
 }
 
 // BlockCommit merges a snapshot device back into its parent device.
-func (m *Monitor) BlockCommit(deviceNodeName string) error {
+func (m *Monitor) BlockCommit(deviceNodeName string, top string, base string) error {
 	var args struct {
 		Device string `json:"device"`
 		JobID  string `json:"job-id"`
+		Top    string `json:"top-node"`
+		Base   string `json:"base-node"`
 	}
 
 	args.Device = deviceNodeName
 	args.JobID = args.Device
+	args.Top = top
+	args.Base = base
 
 	err := m.Run("block-commit", args, nil)
 	if err != nil {
 		return err
 	}
 
-	err = m.blockJobWaitReady(args.JobID)
+	// From QEMU doc: If top has no overlays on top of it, or if it is in use by a writer,
+	// the job will not be completed by itself.
+	hasTop := top != deviceNodeName && top != ""
+	err = m.blockJobWaitReady(args.JobID, hasTop)
 	if err != nil {
 		return err
 	}
 
-	err = m.BlockJobComplete(args.JobID)
-	if err != nil {
-		return err
+	if !hasTop {
+		err = m.BlockJobComplete(args.JobID)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1284,7 +1295,7 @@ func (m *Monitor) BlockDevMirror(deviceNodeName string, targetNodeName string) e
 		return err
 	}
 
-	err = m.blockJobWaitReady(args.JobID)
+	err = m.blockJobWaitReady(args.JobID, false)
 	if err != nil {
 		return err
 	}

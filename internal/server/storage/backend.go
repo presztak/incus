@@ -54,7 +54,6 @@ import (
 	"github.com/lxc/incus/v6/shared/ioprogress"
 	"github.com/lxc/incus/v6/shared/logger"
 	"github.com/lxc/incus/v6/shared/revert"
-	"github.com/lxc/incus/v6/shared/subprocess"
 	"github.com/lxc/incus/v6/shared/units"
 	"github.com/lxc/incus/v6/shared/util"
 )
@@ -3296,11 +3295,11 @@ func (b *backend) DeleteInstanceSnapshot(inst instance.Instance, op *operations.
 			if err != nil {
 				return err
 			}
-		}
-
-		err = b.driver.DeleteVolumeSnapshot(vol, op)
-		if err != nil {
-			return err
+		} else {
+			err = b.driver.DeleteVolumeSnapshot(vol, op)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -7827,76 +7826,120 @@ func (b *backend) qcow2DeleteSnapshot(vol drivers.Volume, snapVol drivers.Volume
 		return nil
 	}
 
-	var destinationVol string
-
-	snapVolDiskPath, err := b.driver.GetQcow2BackingFilePath(snapVol)
+	parentInst, err := instance.LoadByProjectAndName(b.state, inst.Project().Name, vol.Name())
 	if err != nil {
 		return err
 	}
 
-	// Get parent volume backing file
-	parentVolDiskPath, err := b.driver.GetQcow2BackingFilePath(vol)
-	if err != nil {
-		return err
-	}
+	parentStorageName := project.Instance(inst.Project().Name, vol.Name())
 
 	// Get snapshots.
-	volSnaps, err := VolumeDBSnapshotsGet(b, inst.Project().Name, vol.Name(), vol.Type())
+	volSnaps, err := VolumeDBSnapshotsGet(b, inst.Project().Name, parentStorageName, vol.Type())
 	if err != nil {
 		return err
 	}
 
-	// Check if the main volume is the parent of the snapshot to be deleted.
-	err = vol.MountWithSnapshotsTask(func(mountPath string, op *operations.Operation) error {
-		parentDiskPath, err := b.driver.GetVolumeDiskPath(vol)
-		if err != nil {
-			return err
-		}
+	_, snapName, _ := api.GetParentAndSnapshotName(inst.Name())
 
-		imgInfo, err := drivers.Qcow2Info(parentDiskPath)
-		if err != nil {
-			return err
-		}
+	snapIndex := -1
+	childName := parentStorageName
+	backingFilename := ""
 
-		if imgInfo.BackingFilename == snapVolDiskPath {
-			destinationVol = parentVolDiskPath
-		}
+	// Find snapshot index to delete and its child if exists.
+	for index, snap := range volSnaps {
+		_, currentSnapName, _ := api.GetParentAndSnapshotName(snap.Name)
+		if snapName == currentSnapName {
+			snapIndex = index
 
-		// Check which snapshot is the parent of the snapshot to be deleted.
-		// Record information about the snapshot that will be deleted.
-		for _, snap := range volSnaps {
-			currentSnapVol := b.GetVolume(vol.Type(), vol.ContentType(), project.Instance(inst.Project().Name, snap.Name), nil)
-			currentSnapVolDiskPath, err := b.driver.GetQcow2BackingFilePath(currentSnapVol)
+			if index+1 < len(volSnaps) {
+				childName = volSnaps[index+1].Name
+			}
+
+			break
+		}
+	}
+
+	if parentInst.IsRunning() {
+		if snapIndex+1 < len(volSnaps) {
+			tmpVol := b.GetVolume(vol.Type(), vol.ContentType(), project.Instance(inst.Project().Name, volSnaps[snapIndex+1].Name), nil)
+			diskPath, err := b.driver.GetQcow2BackingFilePath(tmpVol)
 			if err != nil {
 				return err
 			}
 
-			imgInfo, err := drivers.Qcow2Info(currentSnapVolDiskPath)
+			backingFilename = diskPath
+		}
+
+		err = parentInst.DeleteQcow2Snapshot(snapIndex, backingFilename)
+		if err != nil {
+			return err
+		}
+
+		fsVol := snapVol.NewVMBlockFilesystemVolume()
+		_, err = b.driver.UnmountVolumeSnapshot(fsVol, op)
+		if err != nil {
+			return err
+		}
+	} else {
+		var destinationVol string
+
+		snapVolDiskPath, err := b.driver.GetQcow2BackingFilePath(snapVol)
+		if err != nil {
+			return err
+		}
+
+		// Get parent volume backing file
+		parentVolDiskPath, err := b.driver.GetQcow2BackingFilePath(vol)
+		if err != nil {
+			return err
+		}
+
+		// Check if the main volume is the parent of the snapshot to be deleted.
+		err = vol.MountWithSnapshotsTask(func(mountPath string, op *operations.Operation) error {
+			parentDiskPath, err := b.driver.GetVolumeDiskPath(vol)
+			if err != nil {
+				return err
+			}
+
+			imgInfo, err := drivers.Qcow2Info(parentDiskPath)
 			if err != nil {
 				return err
 			}
 
 			if imgInfo.BackingFilename == snapVolDiskPath {
-				destinationVol = currentSnapVolDiskPath
+				destinationVol = parentVolDiskPath
 			}
-		}
 
-		// Move the data from the deleted snapshot to temporary volume.
-		err = drivers.Qcow2Commit(destinationVol)
+			// Check which snapshot is the parent of the snapshot to be deleted.
+			// Record information about the snapshot that will be deleted.
+			for _, snap := range volSnaps {
+				currentSnapVol := b.GetVolume(vol.Type(), vol.ContentType(), project.Instance(inst.Project().Name, snap.Name), nil)
+				currentSnapVolDiskPath, err := b.driver.GetQcow2BackingFilePath(currentSnapVol)
+				if err != nil {
+					return err
+				}
+
+				imgInfo, err := drivers.Qcow2Info(currentSnapVolDiskPath)
+				if err != nil {
+					return err
+				}
+
+				if imgInfo.BackingFilename == snapVolDiskPath {
+					destinationVol = currentSnapVolDiskPath
+				}
+			}
+
+			// Move the data from the deleted snapshot to temporary volume.
+			err = drivers.Qcow2Commit(destinationVol)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}, op)
 		if err != nil {
 			return err
 		}
-
-		// Copy data from the temporary volume to the parent of the deleted snapshot.
-		_, err = subprocess.RunCommand("dd", "bs=4M", fmt.Sprintf("if=%s", snapVolDiskPath), fmt.Sprintf("of=%s", destinationVol))
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}, op)
-	if err != nil {
-		return err
 	}
 
 	if inst.Type() == instancetype.VM {
@@ -7906,6 +7949,12 @@ func (b *backend) qcow2DeleteSnapshot(vol drivers.Volume, snapVol drivers.Volume
 		if err != nil {
 			return err
 		}
+	}
+
+	// Performs post operation cleanup, including renaming and removing volumes.
+	err = b.driver.Qcow2DeletionCleanup(snapVol, childName)
+	if err != nil {
+		return err
 	}
 
 	return nil
