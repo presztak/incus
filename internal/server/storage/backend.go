@@ -1130,7 +1130,7 @@ func (b *backend) CreateInstanceFromCopy(inst instance.Instance, src instance.In
 	} else {
 		// We are copying volumes between storage pools so use migration system as it will
 		// be able to negotiate a common transfer method between pool types.
-		l.Debug("CreateInstanceFromCopy cross-pool mode detected")
+		l.Error("CreateInstanceFromCopy cross-pool mode detected")
 
 		// Negotiate the migration type to use.
 		offeredTypes := srcPool.MigrationTypes(contentType, false, snapshots, false, true)
@@ -1142,6 +1142,7 @@ func (b *backend) CreateInstanceFromCopy(inst instance.Instance, src instance.In
 
 		var srcVolumeSize int64
 
+		l.Error("Before getting disk size: CreateInstanceFromCopy cross-pool mode detected")
 		// For VMs, get source volume size so that target can create the volume the same size.
 		if src.Type() == instancetype.VM {
 			srcVolumeSize, err = InstanceDiskBlockSize(srcPool, src, op)
@@ -1150,6 +1151,7 @@ func (b *backend) CreateInstanceFromCopy(inst instance.Instance, src instance.In
 			}
 		}
 
+		l.Error("Before snapshot transform: CreateInstanceFromCopy cross-pool mode detected")
 		var migrationSnapshots []*migration.Snapshot
 		if snapshots {
 			migrationSnapshots, err = VolumeSnapshotsToMigrationSnapshots(srcConfig.VolumeSnapshots, inst.Project().Name, srcPool, contentType, volType, src.Name())
@@ -1168,6 +1170,7 @@ func (b *backend) CreateInstanceFromCopy(inst instance.Instance, src instance.In
 		// Use context from error group so that if either side fails the pipes are closed.
 		aEnd, bEnd := memorypipe.NewPipePair(ctx)
 
+		l.Error("Before start each: CreateInstanceFromCopy cross-pool mode detected")
 		// Start each side of the migration concurrently and collect any errors.
 		g.Go(func() error {
 			return srcPool.MigrateInstance(src, aEnd, &localMigration.VolumeSourceArgs{
@@ -2027,9 +2030,9 @@ func (b *backend) CreateInstanceFromMigration(inst instance.Instance, conn io.Re
 	// Create new volume database records when the storage pool is changed or
 	// when it is not a remote cluster move.
 	if !isRemoteClusterMove || args.StoragePool != "" {
-		if vol.ExpandedConfig("block.type") == drivers.BlockVolumeTypeQcow2 {
+		/*if vol.ExpandedConfig("block.type") == drivers.BlockVolumeTypeQcow2 {
 			return errors.New("Qcow2 instance migration is not supported")
-		}
+		}*/
 
 		for i, snapshot := range args.Snapshots {
 			snapName := snapshot.GetName()
@@ -2261,10 +2264,19 @@ func (b *backend) RenameInstance(inst instance.Instance, newName string, op *ope
 
 	vol := b.GetVolume(volType, contentType, volStorageName, volume.Config)
 
+	if inst.Type() == instancetype.VM {
+		fsVol := vol.NewVMBlockFilesystemVolume()
+		err = drivers.Qcow2RenameConfig(fsVol, newName, op)
+		if err != nil {
+			return err
+		}
+	}
+
 	err = b.driver.RenameVolume(vol, newVolStorageName, op)
 	if err != nil {
 		return err
 	}
+
 
 	reverter.Add(func() {
 		// There's no need to pass config as it's not needed when renaming a volume.
@@ -2546,9 +2558,9 @@ func (b *backend) MigrateInstance(inst instance.Instance, conn io.ReadWriteClose
 		return err
 	}
 
-	if args.StorageMove && vol.ExpandedConfig("block.type") == drivers.BlockVolumeTypeQcow2 {
+	/*if args.StorageMove && vol.ExpandedConfig("block.type") == drivers.BlockVolumeTypeQcow2 {
 		return errors.New("Qcow2 instance migration is not supported")
-	}
+	}*/
 
 	args.Name = inst.Name() // Override args.Name to ensure instance volume is sent.
 

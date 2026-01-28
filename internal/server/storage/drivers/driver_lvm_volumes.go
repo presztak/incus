@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -974,6 +975,8 @@ func (d *lvm) MountVolume(vol Volume, op *operations.Operation) error {
 			mountFlags, mountOptions := linux.ResolveMountOptions(strings.Split(vol.ConfigBlockMountOptions(), ","))
 			err = TryMount(volDevPath, mountPath, fsType, mountFlags, mountOptions)
 			if err != nil {
+				d.logger.Error("Before error mount")
+				time.Sleep(60 * time.Second)
 				return fmt.Errorf("Failed to mount LVM logical volume: %w", err)
 			}
 
@@ -1479,6 +1482,7 @@ func (d *lvm) MountVolumeSnapshot(snapVol Volume, op *operations.Operation) erro
 		}
 	} else if snapVol.contentType == ContentTypeBlock {
 		// Activate volume if needed.
+		d.logger.Error("Activate snapshot", logger.Ctx{"path": mountPath, "expandedConfig": snapVol.ExpandedConfig("block.type"), "config": snapVol.Config()})
 		_, err = d.activateVolume(snapVol)
 		if err != nil {
 			return err

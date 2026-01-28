@@ -964,7 +964,7 @@ func (d *lvm) deactivateVolume(vol Volume) (bool, error) {
 		return false, fmt.Errorf("Failed to deactivate LVM logical volume %q: %w", volPath, err)
 	}
 
-	d.logger.Debug("Deactivated logical volume", logger.Ctx{"volName": vol.Name(), "dev": volPath})
+	d.logger.Error("Deactivated logical volume", logger.Ctx{"volName": vol.Name(), "dev": volPath})
 	return true, nil
 }
 
