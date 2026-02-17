@@ -1273,3 +1273,12 @@ func VolumeSnapshotsToMigrationSnapshots(snapshots []*api.StorageVolumeSnapshot,
 
 	return migrationSnapshots, nil
 }
+
+func ProjectVolume(projectName string, volName string, volType drivers.VolumeType) string {
+	if volType == drivers.VolumeTypeContainer || volType == drivers.VolumeTypeVM {
+		return project.Instance(projectName, volName)
+	}
+
+	return project.StorageVolume(projectName, volName)
+}
+

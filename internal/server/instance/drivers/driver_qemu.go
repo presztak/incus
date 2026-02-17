@@ -2701,6 +2701,11 @@ func (d *qemu) deviceDetachBlockDevice(deviceName string, rawConfig deviceConfig
 		return err
 	}
 
+	err = monitor.RemoveFDFromFDSet("incus_vol1_backing0")
+	if err != nil {
+		return err
+	}
+
 	err = monitor.RemoveDevice(deviceID)
 	if err != nil {
 		return err
@@ -2717,7 +2722,27 @@ func (d *qemu) deviceDetachBlockDevice(deviceName string, rawConfig deviceConfig
 	waitDuration := time.Duration(time.Second * time.Duration(10))
 	waitUntil := time.Now().Add(waitDuration)
 	for {
+		d.logger.Error("Removing block device", logger.Ctx{"blockDevName": blockDevName})
+
 		err = monitor.RemoveBlockDevice(blockDevName)
+		if err == nil {
+			break
+		}
+
+		if api.StatusErrorCheck(err, http.StatusLocked) {
+			time.Sleep(time.Second * time.Duration(2))
+			continue
+		}
+
+		if time.Now().After(waitUntil) {
+			return fmt.Errorf("Failed to detach block device after %v", waitDuration)
+		}
+	}
+
+	for {
+		d.logger.Error("Removing block device", logger.Ctx{"blockDevName": blockDevName})
+
+		err = monitor.RemoveBlockDevice("incus_vol1_backing0")
 		if err == nil {
 			break
 		}
