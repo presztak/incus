@@ -645,9 +645,24 @@ With VMs, this option supports mounting file system disk devices and paths withi
 
 ```
 
+```{config:option} limits.burst.length devices-nic_bridged
+:default: "`1s`"
+:managed: "no"
+:shortdesc: "How long the burst limits may be sustained for before falling back to the sustained limits"
+:type: "string"
+
+```
+
 ```{config:option} limits.egress devices-nic_bridged
 :managed: "no"
 :shortdesc: "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)"
+:type: "string"
+
+```
+
+```{config:option} limits.egress.burst devices-nic_bridged
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`"
 :type: "string"
 
 ```
@@ -659,9 +674,23 @@ With VMs, this option supports mounting file system disk devices and paths withi
 
 ```
 
+```{config:option} limits.ingress.burst devices-nic_bridged
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`"
+:type: "string"
+
+```
+
 ```{config:option} limits.max devices-nic_bridged
 :managed: "no"
 :shortdesc: "I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)"
+:type: "string"
+
+```
+
+```{config:option} limits.max.burst devices-nic_bridged
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)"
 :type: "string"
 
 ```
@@ -1111,9 +1140,24 @@ With VMs, this option supports mounting file system disk devices and paths withi
 
 ```
 
+```{config:option} limits.burst.length devices-nic_ovn
+:default: "`1s`"
+:managed: "no"
+:shortdesc: "How long the burst limits may be sustained for before falling back to the sustained limits"
+:type: "string"
+
+```
+
 ```{config:option} limits.egress devices-nic_ovn
 :managed: "no"
 :shortdesc: "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)"
+:type: "string"
+
+```
+
+```{config:option} limits.egress.burst devices-nic_ovn
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`"
 :type: "string"
 
 ```
@@ -1125,9 +1169,23 @@ With VMs, this option supports mounting file system disk devices and paths withi
 
 ```
 
+```{config:option} limits.ingress.burst devices-nic_ovn
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`"
+:type: "string"
+
+```
+
 ```{config:option} limits.max devices-nic_ovn
 :managed: "no"
 :shortdesc: "I/O limit in bit/s for both incoming and outgoing traffic. (same as setting both limits.ingress and limits.egress / mutually exclusive with limits.ingress and limits.egress)"
+:type: "string"
+
+```
+
+```{config:option} limits.max.burst devices-nic_ovn
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)"
 :type: "string"
 
 ```
@@ -1281,8 +1339,23 @@ With VMs, this option supports mounting file system disk devices and paths withi
 
 ```
 
+```{config:option} limits.burst.length devices-nic_p2p
+:default: "`1s`"
+:managed: "no"
+:shortdesc: "How long the burst limits may be sustained for before falling back to the sustained limits"
+:type: "string"
+
+```
+
 ```{config:option} limits.egress devices-nic_p2p
 :shortdesc: "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)"
+:type: "string"
+
+```
+
+```{config:option} limits.egress.burst devices-nic_p2p
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`"
 :type: "string"
 
 ```
@@ -1293,8 +1366,22 @@ With VMs, this option supports mounting file system disk devices and paths withi
 
 ```
 
+```{config:option} limits.ingress.burst devices-nic_p2p
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`"
+:type: "string"
+
+```
+
 ```{config:option} limits.max devices-nic_p2p
 :shortdesc: "I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)"
+:type: "string"
+
+```
+
+```{config:option} limits.max.burst devices-nic_p2p
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)"
 :type: "string"
 
 ```
@@ -1547,8 +1634,23 @@ The custom policy routing table ID to add IPv6 static routes to (in addition to 
 
 ```
 
+```{config:option} limits.burst.length devices-nic_routed
+:default: "`1s`"
+:managed: "no"
+:shortdesc: "How long the burst limits may be sustained for before falling back to the sustained limits"
+:type: "string"
+
+```
+
 ```{config:option} limits.egress devices-nic_routed
 :shortdesc: "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)"
+:type: "string"
+
+```
+
+```{config:option} limits.egress.burst devices-nic_routed
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`"
 :type: "string"
 
 ```
@@ -1559,8 +1661,22 @@ The custom policy routing table ID to add IPv6 static routes to (in addition to 
 
 ```
 
+```{config:option} limits.ingress.burst devices-nic_routed
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`"
+:type: "string"
+
+```
+
 ```{config:option} limits.max devices-nic_routed
 :shortdesc: "I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)"
+:type: "string"
+
+```
+
+```{config:option} limits.max.burst devices-nic_routed
+:managed: "no"
+:shortdesc: "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)"
 :type: "string"
 
 ```

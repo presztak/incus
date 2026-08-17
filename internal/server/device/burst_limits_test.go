@@ -161,3 +161,75 @@ func TestDiskValidateBurstLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestNicParseLimits(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   deviceConfig.Device
+		expected nicLimits
+		err      string
+	}{
+		{
+			name:     "No limits",
+			config:   deviceConfig.Device{},
+			expected: nicLimits{},
+		},
+		{
+			name:     "Sustained limits only",
+			config:   deviceConfig.Device{"limits.ingress": "1Mbit", "limits.egress": "2Mbit"},
+			expected: nicLimits{ingress: 1000000, egress: 2000000},
+		},
+		{
+			name:   "Burst defaults to a one second length",
+			config: deviceConfig.Device{"limits.ingress": "1Mbit", "limits.ingress.burst": "10Mbit"},
+			expected: nicLimits{
+				ingress:      1000000,
+				ingressBurst: 10000000,
+				burstLength:  1,
+			},
+		},
+		{
+			name: "Max applies to both directions",
+			config: deviceConfig.Device{
+				"limits.max":          "1Mbit",
+				"limits.max.burst":    "10Mbit",
+				"limits.burst.length": "5s",
+			},
+			expected: nicLimits{
+				ingress:      1000000,
+				egress:       1000000,
+				ingressBurst: 10000000,
+				egressBurst:  10000000,
+				burstLength:  5,
+			},
+		},
+		{
+			name:   "IOPS values are rejected",
+			config: deviceConfig.Device{"limits.ingress": "1Mbit", "limits.ingress.burst": "1000iops"},
+			err:    "IOPS limits are not supported for network devices, limits.ingress.burst must be a bit/s rate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limits, err := nicParseLimits(tt.config)
+			if tt.err != "" {
+				assert.EqualError(t, err, tt.err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, *limits)
+		})
+	}
+}
+
+func TestNicBurstBytes(t *testing.T) {
+	// 10Mbit above a 1Mbit sustained rate, held for 5 seconds.
+	limits := nicLimits{burstLength: 5}
+	assert.Equal(t, uint32((10000000-1000000)*5/8), limits.burstBytes(1000000, 10000000))
+
+	// A burst at or below the sustained rate has no allowance to grant.
+	assert.Equal(t, uint32(0), limits.burstBytes(1000000, 1000000))
+	assert.Equal(t, uint32(0), limits.burstBytes(1000000, 500000))
+}

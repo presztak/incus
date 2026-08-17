@@ -562,6 +562,154 @@ func networkNICRouteDelete(routeDev string, viaIPv4 string, viaIPv6 string, rout
 	}
 }
 
+// nicLimits represents the parsed rate limits of a nic device, all rates in bit/s.
+type nicLimits struct {
+	ingress int64
+	egress  int64
+
+	// Burst limits, the rates that may be reached for burstLength before falling back to the limits above.
+	ingressBurst int64
+	egressBurst  int64
+	burstLength  int64 // In seconds.
+}
+
+// hasBurst reports whether any burst limit is set.
+func (l *nicLimits) hasBurst() bool {
+	return l.ingressBurst > 0 || l.egressBurst > 0
+}
+
+// burstBytes returns the size of the burst bucket needed to sustain the given burst rate for burstLength.
+//
+// Both rates are in bit/s and the result is the number of bytes that may be sent above the
+// sustained rate before the burst allowance is exhausted.
+func (l *nicLimits) burstBytes(rate int64, burst int64) uint32 {
+	if burst <= rate {
+		return 0
+	}
+
+	return uint32((burst - rate) * l.burstLength / 8)
+}
+
+// nicParseLimits parses a nic device configuration for its rate limits.
+func nicParseLimits(config deviceConfig.Device) (*nicLimits, error) {
+	limits := &nicLimits{}
+
+	ingress := config["limits.ingress"]
+	egress := config["limits.egress"]
+	ingressBurst := config["limits.ingress.burst"]
+	egressBurst := config["limits.egress.burst"]
+
+	// Apply max limit.
+	if config["limits.max"] != "" {
+		ingress = config["limits.max"]
+		egress = config["limits.max"]
+	}
+
+	if config["limits.max.burst"] != "" {
+		ingressBurst = config["limits.max.burst"]
+		egressBurst = config["limits.max.burst"]
+	}
+
+	// parseValue parses a single bit/s rate.
+	parseValue := func(key string, value string) (int64, error) {
+		if value == "" {
+			return 0, nil
+		}
+
+		// Network limits have no IOPS equivalent, so catch the disk syntax with a clear message.
+		if strings.HasSuffix(value, "iops") {
+			return -1, fmt.Errorf("IOPS limits are not supported for network devices, %s must be a bit/s rate", key)
+		}
+
+		rate, err := units.ParseBitSizeString(value)
+		if err != nil {
+			return -1, fmt.Errorf("Invalid %s value %q: %w", key, value, err)
+		}
+
+		return rate, nil
+	}
+
+	var err error
+
+	limits.ingress, err = parseValue("limits.ingress", ingress)
+	if err != nil {
+		return nil, err
+	}
+
+	limits.egress, err = parseValue("limits.egress", egress)
+	if err != nil {
+		return nil, err
+	}
+
+	limits.ingressBurst, err = parseValue("limits.ingress.burst", ingressBurst)
+	if err != nil {
+		return nil, err
+	}
+
+	limits.egressBurst, err = parseValue("limits.egress.burst", egressBurst)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process the burst length, defaulting to a second to match the disk devices.
+	if limits.hasBurst() {
+		limits.burstLength = 1
+
+		if config["limits.burst.length"] != "" {
+			burstLength, err := time.ParseDuration(config["limits.burst.length"])
+			if err != nil {
+				return nil, fmt.Errorf("Invalid burst length %q: %w", config["limits.burst.length"], err)
+			}
+
+			limits.burstLength = int64(burstLength.Seconds())
+		}
+	}
+
+	return limits, nil
+}
+
+// nicValidateBurstLimits checks that the burst rate limits of a device are consistent with its sustained limits.
+func nicValidateBurstLimits(config deviceConfig.Device) error {
+	limits, err := nicParseLimits(config)
+	if err != nil {
+		return err
+	}
+
+	if !limits.hasBurst() {
+		if config["limits.burst.length"] != "" {
+			return errors.New("limits.burst.length requires a burst limit to be set")
+		}
+
+		return nil
+	}
+
+	// A burst limit needs something to burst above, and can only ever raise that limit.
+	checks := []struct {
+		name      string
+		sustained int64
+		burst     int64
+	}{
+		{"ingress", limits.ingress, limits.ingressBurst},
+		{"egress", limits.egress, limits.egressBurst},
+	}
+
+	for _, check := range checks {
+		if check.burst == 0 {
+			continue
+		}
+
+		if check.sustained == 0 {
+			return fmt.Errorf("A %s burst limit requires a matching sustained limit", check.name)
+		}
+
+		if check.burst < check.sustained {
+			return fmt.Errorf("The %s burst limit must be higher than the sustained limit", check.name)
+		}
+	}
+
+	return nil
+}
+
 // networkSetupHostVethLimits applies any network rate limits to the veth device specified in the config.
 func networkSetupHostVethLimits(d *deviceCommon, oldConfig deviceConfig.Device, bridged bool) error {
 	var err error
@@ -579,21 +727,13 @@ func networkSetupHostVethLimits(d *deviceCommon, oldConfig deviceConfig.Device, 
 	}
 
 	// Parse the values
-	var ingressInt int64
-	if d.config["limits.ingress"] != "" {
-		ingressInt, err = units.ParseBitSizeString(d.config["limits.ingress"])
-		if err != nil {
-			return err
-		}
+	limits, err := nicParseLimits(d.config)
+	if err != nil {
+		return err
 	}
 
-	var egressInt int64
-	if d.config["limits.egress"] != "" {
-		egressInt, err = units.ParseBitSizeString(d.config["limits.egress"])
-		if err != nil {
-			return err
-		}
-	}
+	ingressInt := limits.ingress
+	egressInt := limits.egress
 
 	// Clean any existing entry
 	qdiscIngress := &ip.QdiscIngress{Qdisc: ip.Qdisc{Dev: veth, Handle: "ffff:0"}}
@@ -617,6 +757,13 @@ func networkSetupHostVethLimits(d *deviceCommon, oldConfig deviceConfig.Device, 
 		}
 
 		classHTB := &ip.ClassHTB{Class: ip.Class{Dev: veth, Parent: "1:0", Classid: "1:10"}, Rate: fmt.Sprintf("%dbit", ingressInt)}
+
+		// Let the class borrow up to the burst rate, for as many bytes as the burst length allows.
+		if limits.ingressBurst > 0 {
+			classHTB.Ceil = fmt.Sprintf("%dbit", limits.ingressBurst)
+			classHTB.Buffer = limits.burstBytes(ingressInt, limits.ingressBurst)
+		}
+
 		err = classHTB.Add()
 		if err != nil {
 			return fmt.Errorf("Failed to create limit tc class: %s", err)
@@ -637,6 +784,13 @@ func networkSetupHostVethLimits(d *deviceCommon, oldConfig deviceConfig.Device, 
 		}
 
 		police := &ip.ActionPolice{Rate: uint32(egressInt / 8), Burst: uint32(egressInt / 40), Mtu: 65535, Drop: true}
+
+		// Let traffic reach the burst rate, for as many bytes as the burst length allows.
+		if limits.egressBurst > 0 {
+			police.PeakRate = uint32(limits.egressBurst / 8)
+			police.Burst = limits.burstBytes(egressInt, limits.egressBurst)
+		}
+
 		filter := &ip.U32Filter{Filter: ip.Filter{Dev: veth, Parent: "ffff:0", Protocol: "all"}, Value: 0, Mask: 0, Actions: []ip.Action{police}}
 		err = filter.Add()
 		if err != nil {

@@ -707,10 +707,27 @@
 						}
 					},
 					{
+						"limits.burst.length": {
+							"default": "`1s`",
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "How long the burst limits may be sustained for before falling back to the sustained limits",
+							"type": "string"
+						}
+					},
+					{
 						"limits.egress": {
 							"longdesc": "",
 							"managed": "no",
 							"shortdesc": "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.egress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`",
 							"type": "string"
 						}
 					},
@@ -723,10 +740,26 @@
 						}
 					},
 					{
+						"limits.ingress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`",
+							"type": "string"
+						}
+					},
+					{
 						"limits.max": {
 							"longdesc": "",
 							"managed": "no",
 							"shortdesc": "I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.max.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)",
 							"type": "string"
 						}
 					},
@@ -1242,10 +1275,27 @@
 						}
 					},
 					{
+						"limits.burst.length": {
+							"default": "`1s`",
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "How long the burst limits may be sustained for before falling back to the sustained limits",
+							"type": "string"
+						}
+					},
+					{
 						"limits.egress": {
 							"longdesc": "",
 							"managed": "no",
 							"shortdesc": "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.egress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`",
 							"type": "string"
 						}
 					},
@@ -1258,10 +1308,26 @@
 						}
 					},
 					{
+						"limits.ingress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`",
+							"type": "string"
+						}
+					},
+					{
 						"limits.max": {
 							"longdesc": "",
 							"managed": "no",
 							"shortdesc": "I/O limit in bit/s for both incoming and outgoing traffic. (same as setting both limits.ingress and limits.egress / mutually exclusive with limits.ingress and limits.egress)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.max.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)",
 							"type": "string"
 						}
 					},
@@ -1437,9 +1503,26 @@
 						}
 					},
 					{
+						"limits.burst.length": {
+							"default": "`1s`",
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "How long the burst limits may be sustained for before falling back to the sustained limits",
+							"type": "string"
+						}
+					},
+					{
 						"limits.egress": {
 							"longdesc": "",
 							"shortdesc": "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.egress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`",
 							"type": "string"
 						}
 					},
@@ -1451,9 +1534,25 @@
 						}
 					},
 					{
+						"limits.ingress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`",
+							"type": "string"
+						}
+					},
+					{
 						"limits.max": {
 							"longdesc": "",
 							"shortdesc": "I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.max.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)",
 							"type": "string"
 						}
 					},
@@ -1742,9 +1841,26 @@
 						}
 					},
 					{
+						"limits.burst.length": {
+							"default": "`1s`",
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "How long the burst limits may be sustained for before falling back to the sustained limits",
+							"type": "string"
+						}
+					},
+					{
 						"limits.egress": {
 							"longdesc": "",
 							"shortdesc": "I/O limit in bit/s for outgoing traffic (various suffixes supported, see {ref}`instances-limit-units`)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.egress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`",
 							"type": "string"
 						}
 					},
@@ -1756,9 +1872,25 @@
 						}
 					},
 					{
+						"limits.ingress.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`",
+							"type": "string"
+						}
+					},
+					{
 						"limits.max": {
 							"longdesc": "",
 							"shortdesc": "I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)",
+							"type": "string"
+						}
+					},
+					{
+						"limits.max.burst": {
+							"longdesc": "",
+							"managed": "no",
+							"shortdesc": "I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)",
 							"type": "string"
 						}
 					},

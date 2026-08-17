@@ -45,7 +45,7 @@ func (d *nicRouted) UpdatableFields(oldDevice Type) []string {
 		return []string{}
 	}
 
-	return []string{"limits.ingress", "limits.egress", "limits.max", "limits.priority", "connected"}
+	return []string{"limits.ingress", "limits.egress", "limits.max", "limits.ingress.burst", "limits.egress.burst", "limits.max.burst", "limits.burst.length", "limits.priority", "connected"}
 }
 
 // validateConfig checks the supplied config for correctness.
@@ -134,6 +134,39 @@ func (d *nicRouted) validateConfig(instConf instance.ConfigReader, partialValida
 		//  type: string
 		//  shortdesc: I/O limit in bit/s for both incoming and outgoing traffic (same as setting both limits.ingress and limits.egress)
 		"limits.max",
+
+		// gendoc:generate(entity=devices, group=nic_routed, key=limits.ingress.burst)
+		//
+		// ---
+		//  type: string
+		//  managed: no
+		//  shortdesc: I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`
+		"limits.ingress.burst",
+
+		// gendoc:generate(entity=devices, group=nic_routed, key=limits.egress.burst)
+		//
+		// ---
+		//  type: string
+		//  managed: no
+		//  shortdesc: I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`
+		"limits.egress.burst",
+
+		// gendoc:generate(entity=devices, group=nic_routed, key=limits.max.burst)
+		//
+		// ---
+		//  type: string
+		//  managed: no
+		//  shortdesc: I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)
+		"limits.max.burst",
+
+		// gendoc:generate(entity=devices, group=nic_routed, key=limits.burst.length)
+		//
+		// ---
+		//  type: string
+		//  default: `1s`
+		//  managed: no
+		//  shortdesc: How long the burst limits may be sustained for before falling back to the sustained limits
+		"limits.burst.length",
 
 		// gendoc:generate(entity=devices, group=nic_routed, key=limits.priority)
 		//
@@ -302,6 +335,11 @@ func (d *nicRouted) validateConfig(instConf instance.ConfigReader, partialValida
 	rules["vrf"] = validate.Optional(validate.IsAny)
 
 	err = d.config.Validate(rules)
+	if err != nil {
+		return err
+	}
+
+	err = nicValidateBurstLimits(d.config)
 	if err != nil {
 		return err
 	}

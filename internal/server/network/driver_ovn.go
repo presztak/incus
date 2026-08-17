@@ -5395,32 +5395,84 @@ func (n *ovn) InstanceDevicePortStart(opts *OVNInstanceNICSetupOpts, securityACL
 		egressRate = maxRate
 	}
 
+	egressBurstRate, err := units.ParseBitSizeString(opts.DeviceConfig["limits.egress.burst"])
+	if err != nil {
+		return "", nil, fmt.Errorf("Failed converting limits.egress.burst to int: %w", err)
+	}
+
+	ingressBurstRate, err := units.ParseBitSizeString(opts.DeviceConfig["limits.ingress.burst"])
+	if err != nil {
+		return "", nil, fmt.Errorf("Failed converting limits.ingress.burst to int: %w", err)
+	}
+
+	if opts.DeviceConfig["limits.max.burst"] != "" {
+		maxBurstRate, err := units.ParseBitSizeString(opts.DeviceConfig["limits.max.burst"])
+		if err != nil {
+			return "", nil, fmt.Errorf("Failed converting limits.max.burst to int: %w", err)
+		}
+
+		// Overwrite the egress and ingress burst rate limits if the max burst rate limit is set.
+		ingressBurstRate = maxBurstRate
+		egressBurstRate = maxBurstRate
+	}
+
+	// OVN expresses a burst as a bucket size rather than as a rate held for a period of time,
+	// so turn the burst rate and length into the volume that may be sent above the sustained rate.
+	burstLength := int64(1)
+	if opts.DeviceConfig["limits.burst.length"] != "" {
+		duration, err := time.ParseDuration(opts.DeviceConfig["limits.burst.length"])
+		if err != nil {
+			return "", nil, fmt.Errorf("Failed converting limits.burst.length to a duration: %w", err)
+		}
+
+		burstLength = int64(duration.Seconds())
+	}
+
+	burstSize := func(rate int64, burstRate int64) int {
+		if burstRate <= rate {
+			return 0
+		}
+
+		// Both the rate and the result are in kbit.
+		return int((burstRate - rate) * burstLength / 1000)
+	}
+
 	var rules []networkOVN.OVNQoSRule
 	if opts.DeviceConfig["limits.egress"] != "" || opts.DeviceConfig["limits.max"] != "" {
-		egressRate /= 1000
+		bandwidth := map[string]int{
+			"rate": int(egressRate / 1000),
+		}
+
+		if egressBurstRate > 0 {
+			bandwidth["burst"] = burstSize(egressRate, egressBurstRate)
+		}
+
 		egressRule := networkOVN.OVNQoSRule{
 			Direction: ovnNB.QoSDirectionFromLport,
 			Action:    map[string]int{},
-			Bandwidth: map[string]int{
-				"rate": int(egressRate),
-			},
-			Match:    fmt.Sprintf("inport == \"%s\"", instancePortName),
-			Priority: int(qosPriority),
+			Bandwidth: bandwidth,
+			Match:     fmt.Sprintf("inport == \"%s\"", instancePortName),
+			Priority:  int(qosPriority),
 		}
 
 		rules = append(rules, egressRule)
 	}
 
 	if opts.DeviceConfig["limits.ingress"] != "" || opts.DeviceConfig["limits.max"] != "" {
-		ingressRate /= 1000
+		bandwidth := map[string]int{
+			"rate": int(ingressRate / 1000),
+		}
+
+		if ingressBurstRate > 0 {
+			bandwidth["burst"] = burstSize(ingressRate, ingressBurstRate)
+		}
+
 		ingressRule := networkOVN.OVNQoSRule{
 			Direction: ovnNB.QoSDirectionToLport,
 			Action:    map[string]int{},
-			Bandwidth: map[string]int{
-				"rate": int(ingressRate),
-			},
-			Match:    fmt.Sprintf("outport == \"%s\"", instancePortName),
-			Priority: int(qosPriority),
+			Bandwidth: bandwidth,
+			Match:     fmt.Sprintf("outport == \"%s\"", instancePortName),
+			Priority:  int(qosPriority),
 		}
 
 		rules = append(rules, ingressRule)

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	deviceConfig "github.com/lxc/incus/v7/internal/server/device/config"
 	"github.com/lxc/incus/v7/internal/server/instance"
@@ -32,6 +33,10 @@ func nicValidationRules(requiredFields []string, optionalFields []string, instCo
 		"limits.ingress":                       validate.IsAny,
 		"limits.egress":                        validate.IsAny,
 		"limits.max":                           validate.IsAny,
+		"limits.ingress.burst":                 validate.IsAny,
+		"limits.egress.burst":                  validate.IsAny,
+		"limits.max.burst":                     validate.IsAny,
+		"limits.burst.length":                  validate.Optional(validate.IsMinimumDuration(time.Second)),
 		"limits.priority":                      validate.Optional(validate.IsUint32),
 		"security.mac_filtering":               validate.IsAny,
 		"security.trusted":                     validate.Optional(validate.IsBool),

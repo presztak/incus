@@ -79,7 +79,7 @@ func (d *nicOVN) UpdatableFields(oldDevice Type) []string {
 		return []string{}
 	}
 
-	return []string{"security.acls", "limits.ingress", "limits.egress", "limits.max", "limits.priority", "connected", "ipv4.address.external", "ipv6.address.external"}
+	return []string{"security.acls", "limits.ingress", "limits.egress", "limits.max", "limits.ingress.burst", "limits.egress.burst", "limits.max.burst", "limits.burst.length", "limits.priority", "connected", "ipv4.address.external", "ipv6.address.external"}
 }
 
 // validateConfig checks the supplied config for correctness.
@@ -324,6 +324,39 @@ func (d *nicOVN) validateConfig(instConf instance.ConfigReader, partialValidatio
 		//  managed: no
 		//  shortdesc: I/O limit in bit/s for both incoming and outgoing traffic. (same as setting both limits.ingress and limits.egress / mutually exclusive with limits.ingress and limits.egress)
 		"limits.max",
+
+		// gendoc:generate(entity=devices, group=nic_ovn, key=limits.ingress.burst)
+		//
+		// ---
+		//  type: string
+		//  managed: no
+		//  shortdesc: I/O limit in bit/s that incoming traffic may burst up to for `limits.burst.length`
+		"limits.ingress.burst",
+
+		// gendoc:generate(entity=devices, group=nic_ovn, key=limits.egress.burst)
+		//
+		// ---
+		//  type: string
+		//  managed: no
+		//  shortdesc: I/O limit in bit/s that outgoing traffic may burst up to for `limits.burst.length`
+		"limits.egress.burst",
+
+		// gendoc:generate(entity=devices, group=nic_ovn, key=limits.max.burst)
+		//
+		// ---
+		//  type: string
+		//  managed: no
+		//  shortdesc: I/O limit in bit/s that both incoming and outgoing traffic may burst up to (same as setting both limits.ingress.burst and limits.egress.burst)
+		"limits.max.burst",
+
+		// gendoc:generate(entity=devices, group=nic_ovn, key=limits.burst.length)
+		//
+		// ---
+		//  type: string
+		//  default: `1s`
+		//  managed: no
+		//  shortdesc: How long the burst limits may be sustained for before falling back to the sustained limits
+		"limits.burst.length",
 
 		// gendoc:generate(entity=devices, group=nic_ovn, key=limits.priority)
 		//
@@ -587,6 +620,15 @@ func (d *nicOVN) validateConfig(instConf instance.ConfigReader, partialValidatio
 	// Avoid setting both ingress/egress and max to avoid confusion or implicit behavior.
 	if d.config["limits.max"] != "" && (d.config["limits.ingress"] != "" || d.config["limits.egress"] != "") {
 		return errors.New("limits.max is mutually exclusive with limits.ingress and limits.egress")
+	}
+
+	if d.config["limits.max.burst"] != "" && (d.config["limits.ingress.burst"] != "" || d.config["limits.egress.burst"] != "") {
+		return errors.New("limits.max.burst is mutually exclusive with limits.ingress.burst and limits.egress.burst")
+	}
+
+	err = nicValidateBurstLimits(d.config)
+	if err != nil {
+		return err
 	}
 
 	if d.config["limits.priority"] != "" {
