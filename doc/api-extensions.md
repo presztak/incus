@@ -3379,3 +3379,18 @@ configuration keys:
 
 * `bridge.multicast_snooping`
 * `bridge.multicast_relay`
+
+## `device_burst_limits`
+
+This adds burst support to the I/O limits of `disk` and `nic` devices.
+
+For `disk` devices (virtual machines only), the new `limits.read.burst`,
+`limits.write.burst` and `limits.max.burst` keys take the same syntax as their
+sustained counterparts and define the rate the device may reach while bursting.
+
+For `nic` devices, the new `limits.ingress.burst`, `limits.egress.burst` and
+`limits.max.burst` keys define the bit/s rate the interface may reach while
+bursting.
+
+In both cases, the new `limits.burst.length` key defines how long the burst
+rate may be sustained for, defaulting to one second.
