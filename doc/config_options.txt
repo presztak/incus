@@ -137,9 +137,24 @@ For file systems (shared directories or custom volumes), this is one of:
 - `unsafe`
 ```
 
+```{config:option} limits.burst.length devices-disk
+:default: "`1s`"
+:required: "no"
+:shortdesc: "How long the burst limits may be sustained for before falling back to the sustained limits"
+:type: "string"
+
+```
+
 ```{config:option} limits.max devices-disk
 :required: "no"
 :shortdesc: "I/O limit in byte/s and/or IOPS for both read and write (same as setting both `limits.read` and `limits.write`)"
+:type: "string"
+
+```
+
+```{config:option} limits.max.burst devices-disk
+:required: "no"
+:shortdesc: "I/O limit in byte/s and/or IOPS that both reads and writes may burst up to (same as setting both `limits.read.burst` and `limits.write.burst`)"
 :type: "string"
 
 ```
@@ -151,9 +166,23 @@ For file systems (shared directories or custom volumes), this is one of:
 
 ```
 
+```{config:option} limits.read.burst devices-disk
+:required: "no"
+:shortdesc: "I/O limit in byte/s and/or IOPS that reads may burst up to for `limits.burst.length` (only for virtual machines) - see also {ref}`storage-configure-IO`"
+:type: "string"
+
+```
+
 ```{config:option} limits.write devices-disk
 :required: "no"
 :shortdesc: "I/O limit in byte/s (various suffixes supported, see {ref}`instances-limit-units`) and/or in IOPS (must be suffixed with `iops`), comma separated when specifying both - see also {ref}`storage-configure-IO`"
+:type: "string"
+
+```
+
+```{config:option} limits.write.burst devices-disk
+:required: "no"
+:shortdesc: "I/O limit in byte/s and/or IOPS that writes may burst up to for `limits.burst.length` (only for virtual machines) - see also {ref}`storage-configure-IO`"
 :type: "string"
 
 ```

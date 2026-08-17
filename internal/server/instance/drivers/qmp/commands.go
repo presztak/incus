@@ -1696,8 +1696,26 @@ func (m *Monitor) UpdateBlockSize(id string, size int64) error {
 	return nil
 }
 
+// BlockThrottle represents the I/O limits to apply on a disk.
+//
+// The burst fields are optional and let the disk temporarily reach a higher rate.
+// A burst rate must be at least as high as its sustained counterpart and a burst
+// length is only valid alongside the matching burst rate, both enforced by QEMU.
+type BlockThrottle struct {
+	BytesRead  int
+	BytesWrite int
+	IOPsRead   int
+	IOPsWrite  int
+
+	BytesReadBurst  int
+	BytesWriteBurst int
+	IOPsReadBurst   int
+	IOPsWriteBurst  int
+	BurstLength     int // In seconds.
+}
+
 // SetBlockThrottle applies an I/O limit on a disk.
-func (m *Monitor) SetBlockThrottle(id string, bytesRead int, bytesWrite int, iopsRead int, iopsWrite int) error {
+func (m *Monitor) SetBlockThrottle(id string, limits BlockThrottle) error {
 	var args struct {
 		ID string `json:"id"`
 
@@ -1707,13 +1725,45 @@ func (m *Monitor) SetBlockThrottle(id string, bytesRead int, bytesWrite int, iop
 		IOPs       int `json:"iops"`
 		IOPsRead   int `json:"iops_rd"`
 		IOPsWrite  int `json:"iops_wr"`
+
+		// QEMU rejects a zero length, so those are only sent when set.
+		BytesReadBurst        int `json:"bps_rd_max,omitempty"`
+		BytesReadBurstLength  int `json:"bps_rd_max_length,omitempty"`
+		BytesWriteBurst       int `json:"bps_wr_max,omitempty"`
+		BytesWriteBurstLength int `json:"bps_wr_max_length,omitempty"`
+		IOPsReadBurst         int `json:"iops_rd_max,omitempty"`
+		IOPsReadBurstLength   int `json:"iops_rd_max_length,omitempty"`
+		IOPsWriteBurst        int `json:"iops_wr_max,omitempty"`
+		IOPsWriteBurstLength  int `json:"iops_wr_max_length,omitempty"`
 	}
 
 	args.ID = id
-	args.BytesRead = bytesRead
-	args.BytesWrite = bytesWrite
-	args.IOPsRead = iopsRead
-	args.IOPsWrite = iopsWrite
+	args.BytesRead = limits.BytesRead
+	args.BytesWrite = limits.BytesWrite
+	args.IOPsRead = limits.IOPsRead
+	args.IOPsWrite = limits.IOPsWrite
+
+	args.BytesReadBurst = limits.BytesReadBurst
+	args.BytesWriteBurst = limits.BytesWriteBurst
+	args.IOPsReadBurst = limits.IOPsReadBurst
+	args.IOPsWriteBurst = limits.IOPsWriteBurst
+
+	// The burst length is per-limit in QEMU but a single value in Incus.
+	if limits.BytesReadBurst > 0 {
+		args.BytesReadBurstLength = limits.BurstLength
+	}
+
+	if limits.BytesWriteBurst > 0 {
+		args.BytesWriteBurstLength = limits.BurstLength
+	}
+
+	if limits.IOPsReadBurst > 0 {
+		args.IOPsReadBurstLength = limits.BurstLength
+	}
+
+	if limits.IOPsWriteBurst > 0 {
+		args.IOPsWriteBurstLength = limits.BurstLength
+	}
 
 	err := m.Run("block_set_io_throttle", args, nil)
 	if err != nil {

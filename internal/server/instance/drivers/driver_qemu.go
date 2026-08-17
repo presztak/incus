@@ -5059,6 +5059,22 @@ func (d *qemu) addDriveDirConfigVirtiofs(qemuDev map[string]any, agentMounts *[]
 	return monHook, nil
 }
 
+// qemuBlockThrottle converts device I/O limits into their QMP equivalent.
+func qemuBlockThrottle(limits *deviceConfig.DiskLimits) qmp.BlockThrottle {
+	return qmp.BlockThrottle{
+		BytesRead:  int(limits.ReadBytes),
+		BytesWrite: int(limits.WriteBytes),
+		IOPsRead:   int(limits.ReadIOps),
+		IOPsWrite:  int(limits.WriteIOps),
+
+		BytesReadBurst:  int(limits.ReadBytesBurst),
+		BytesWriteBurst: int(limits.WriteBytesBurst),
+		IOPsReadBurst:   int(limits.ReadIOpsBurst),
+		IOPsWriteBurst:  int(limits.WriteIOpsBurst),
+		BurstLength:     int(limits.BurstLength),
+	}
+}
+
 // addDriveConfig adds the qemu config required for adding a supplementary drive.
 func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int, driveConf deviceConfig.MountEntryItem) (monitorHook, error) {
 	aioMode := "native" // Use native kernel async IO and O_DIRECT by default.
@@ -5452,7 +5468,7 @@ func (d *qemu) addDriveConfig(qemuDev map[string]any, bootIndexes map[string]int
 		}
 
 		if driveConf.Limits != nil {
-			err = m.SetBlockThrottle(qemuDev["id"].(string), int(driveConf.Limits.ReadBytes), int(driveConf.Limits.WriteBytes), int(driveConf.Limits.ReadIOps), int(driveConf.Limits.WriteIOps))
+			err = m.SetBlockThrottle(qemuDev["id"].(string), qemuBlockThrottle(driveConf.Limits))
 			if err != nil {
 				return fmt.Errorf("Failed applying limits for disk device %q: %w", driveConf.DevName, err)
 			}
@@ -10213,7 +10229,7 @@ func (d *qemu) DeviceEventHandler(runConf *deviceConfig.RunConfig) error {
 
 		if mount.Limits != nil {
 			// Apply the limits.
-			err = m.SetBlockThrottle(devID, int(mount.Limits.ReadBytes), int(mount.Limits.WriteBytes), int(mount.Limits.ReadIOps), int(mount.Limits.WriteIOps))
+			err = m.SetBlockThrottle(devID, qemuBlockThrottle(mount.Limits))
 			if err != nil {
 				return fmt.Errorf("Failed applying limits for disk device %q: %w", mount.DevName, err)
 			}

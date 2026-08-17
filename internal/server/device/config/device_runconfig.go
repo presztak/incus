@@ -53,6 +53,13 @@ type DiskLimits struct {
 	ReadIOps   int64
 	WriteBytes int64
 	WriteIOps  int64
+
+	// Burst limits, the rates that may be reached for BurstLength before falling back to the limits above.
+	ReadBytesBurst  int64
+	ReadIOpsBurst   int64
+	WriteBytesBurst int64
+	WriteIOpsBurst  int64
+	BurstLength     int64 // In seconds.
 }
 
 // RunConfig represents run-time config used for device setup/cleanup.

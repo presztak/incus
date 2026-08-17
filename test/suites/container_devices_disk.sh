@@ -12,6 +12,7 @@ test_container_devices_disk() {
     test_container_devices_disk_socket
     test_container_devices_disk_char
     test_container_devices_disk_tmpfs
+    test_container_devices_disk_burst_limits
 
     incus delete -f foo
 }
@@ -191,6 +192,39 @@ test_container_devices_disk_tmpfs() {
     [ "$(incus exec foo -- stat -f -c '%T' /mnt/tmp)" = "tmpfs" ] || false
     incus stop -f foo
     incus config device remove foo tmp
+}
+
+test_container_devices_disk_burst_limits() {
+    # Burst limits have no cgroup equivalent, so they are rejected on containers.
+    ! incus config device add foo burst disk source=/dev/zero path=/root/burst limits.read=10MiB limits.read.burst=20MiB || false
+    ! incus config device add foo burst disk source=/dev/zero path=/root/burst limits.burst.length=10s || false
+
+    # The remaining checks need a device type that accepts burst limits, so validate through a VM profile.
+    incus profile create burst-limits
+    incus profile device add burst-limits root disk pool="$(incus profile device get default root pool)" path=/
+
+    # A burst limit needs a sustained limit to burst above.
+    ! incus profile device set burst-limits root limits.read.burst=20MiB || false
+
+    # A burst limit cannot be lower than the sustained limit it applies to.
+    incus profile device set burst-limits root limits.read=10MiB
+    ! incus profile device set burst-limits root limits.read.burst=5MiB || false
+
+    # A burst length on its own is meaningless.
+    incus profile device unset burst-limits root limits.read
+    ! incus profile device set burst-limits root limits.burst.length=10s || false
+
+    # A valid combination is accepted, including the IOPS form and the combined syntax.
+    incus profile device set burst-limits root limits.read=10MiB
+    incus profile device set burst-limits root limits.read.burst=20MiB
+    incus profile device set burst-limits root limits.burst.length=10s
+    incus profile device set burst-limits root limits.max=10MiB,1000iops
+    incus profile device set burst-limits root limits.max.burst=20MiB,2000iops
+
+    # An invalid duration is rejected.
+    ! incus profile device set burst-limits root limits.burst.length=banana || false
+
+    incus profile delete burst-limits
 }
 
 test_container_devices_disk_subpath() {

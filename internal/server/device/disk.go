@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -89,6 +90,59 @@ type diskBlockLimit struct {
 	readIops  int64
 	writeBps  int64
 	writeIops int64
+}
+
+// diskIOLimits represents the parsed I/O limits of a single disk device.
+type diskIOLimits struct {
+	readBps   int64
+	readIops  int64
+	writeBps  int64
+	writeIops int64
+
+	// Burst limits, the rates that may be reached for burstLength before falling back to the limits above.
+	readBpsBurst   int64
+	readIopsBurst  int64
+	writeBpsBurst  int64
+	writeIopsBurst int64
+	burstLength    int64 // In seconds.
+}
+
+// hasBurst reports whether any burst limit is set.
+func (l *diskIOLimits) hasBurst() bool {
+	return l.readBpsBurst > 0 || l.readIopsBurst > 0 || l.writeBpsBurst > 0 || l.writeIopsBurst > 0
+}
+
+// toDeviceLimits converts the limits to their run config representation.
+func (l *diskIOLimits) toDeviceLimits() *deviceConfig.DiskLimits {
+	return &deviceConfig.DiskLimits{
+		ReadBytes:  l.readBps,
+		ReadIOps:   l.readIops,
+		WriteBytes: l.writeBps,
+		WriteIOps:  l.writeIops,
+
+		ReadBytesBurst:  l.readBpsBurst,
+		ReadIOpsBurst:   l.readIopsBurst,
+		WriteBytesBurst: l.writeBpsBurst,
+		WriteIOpsBurst:  l.writeIopsBurst,
+		BurstLength:     l.burstLength,
+	}
+}
+
+// diskLimitsConfigKeys is the list of disk device config keys that make up the I/O limits.
+var diskLimitsConfigKeys = []string{"limits.read", "limits.write", "limits.max"}
+
+// diskBurstLimitsConfigKeys is the list of disk device config keys that make up the burst I/O limits.
+var diskBurstLimitsConfigKeys = []string{"limits.read.burst", "limits.write.burst", "limits.max.burst", "limits.burst.length"}
+
+// diskHasLimitsConfig reports whether any I/O limit is configured on the device.
+func diskHasLimitsConfig(dev deviceConfig.Device) bool {
+	for _, key := range append(diskLimitsConfigKeys, diskBurstLimitsConfigKeys...) {
+		if dev[key] != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // diskSourceNotFoundError error used to indicate source not found.
@@ -332,6 +386,39 @@ func (d *disk) validateConfig(instConf instance.ConfigReader, partialValidation 
 		//  shortdesc: I/O limit in byte/s and/or IOPS for both read and write (same as setting both `limits.read` and `limits.write`)
 		"limits.max": validate.IsAny,
 
+		// gendoc:generate(entity=devices, group=disk, key=limits.read.burst)
+		//
+		// ---
+		//  type: string
+		//  required: no
+		//  shortdesc: I/O limit in byte/s and/or IOPS that reads may burst up to for `limits.burst.length` (only for virtual machines) - see also {ref}`storage-configure-IO`
+		"limits.read.burst": validate.IsAny,
+
+		// gendoc:generate(entity=devices, group=disk, key=limits.write.burst)
+		//
+		// ---
+		//  type: string
+		//  required: no
+		//  shortdesc: I/O limit in byte/s and/or IOPS that writes may burst up to for `limits.burst.length` (only for virtual machines) - see also {ref}`storage-configure-IO`
+		"limits.write.burst": validate.IsAny,
+
+		// gendoc:generate(entity=devices, group=disk, key=limits.max.burst)
+		//
+		// ---
+		//  type: string
+		//  required: no
+		//  shortdesc: I/O limit in byte/s and/or IOPS that both reads and writes may burst up to (same as setting both `limits.read.burst` and `limits.write.burst`)
+		"limits.max.burst": validate.IsAny,
+
+		// gendoc:generate(entity=devices, group=disk, key=limits.burst.length)
+		//
+		// ---
+		//  type: string
+		//  default: `1s`
+		//  required: no
+		//  shortdesc: How long the burst limits may be sustained for before falling back to the sustained limits
+		"limits.burst.length": validate.Optional(validate.IsMinimumDuration(time.Second)),
+
 		// gendoc:generate(entity=devices, group=disk, key=size)
 		//
 		// ---
@@ -500,6 +587,20 @@ func (d *disk) validateConfig(instConf instance.ConfigReader, partialValidation 
 
 	if d.config["wwn"] != "" && !slices.Contains([]string{"", "virtio-scsi"}, d.config["io.bus"]) {
 		return errors.New("WWN can only be set on virtio-scsi disks")
+	}
+
+	// The IO cgroup controller has no burst equivalent, so those are virtual machine only.
+	if instConf.Type() == instancetype.Container {
+		for _, key := range diskBurstLimitsConfigKeys {
+			if d.config[key] != "" {
+				return errors.New("Burst I/O limits cannot be applied to containers")
+			}
+		}
+	}
+
+	err = diskValidateBurstLimits(d.config)
+	if err != nil {
+		return err
 	}
 
 	if d.config["required"] != "" && d.config["optional"] != "" {
@@ -904,7 +1005,7 @@ func (d *disk) UpdatableFields(oldDevice Type) []string {
 		return []string{}
 	}
 
-	return []string{"limits.max", "limits.read", "limits.write", "size", "size.state", "dependent"}
+	return []string{"limits.max", "limits.read", "limits.write", "limits.max.burst", "limits.read.burst", "limits.write.burst", "limits.burst.length", "size", "size.state", "dependent"}
 }
 
 // Register calls mount for the disk volume (which should already be mounted) to reinitialize the reference counter
@@ -1362,19 +1463,14 @@ func (d *disk) startVM() (*deviceConfig.RunConfig, error) {
 
 	// Add I/O limits if set.
 	var diskLimits *deviceConfig.DiskLimits
-	if d.config["limits.read"] != "" || d.config["limits.write"] != "" || d.config["limits.max"] != "" {
+	if diskHasLimitsConfig(d.config) {
 		// Parse the limits into usable values.
-		readBps, readIops, writeBps, writeIops, err := diskParseLimits(d.config)
+		limits, err := diskParseLimits(d.config)
 		if err != nil {
 			return nil, err
 		}
 
-		diskLimits = &deviceConfig.DiskLimits{
-			ReadBytes:  readBps,
-			ReadIOps:   readIops,
-			WriteBytes: writeBps,
-			WriteIOps:  writeIops,
-		}
+		diskLimits = limits.toDeviceLimits()
 	}
 
 	if internalInstance.IsRootDiskDevice(d.config) {
@@ -1889,7 +1985,7 @@ func (d *disk) Update(oldDevices deviceConfig.Devices, isRunning bool) error {
 
 		if d.inst.Type() == instancetype.VM {
 			// Parse the limits into usable values (zero when unset, which clears any existing throttle).
-			readBps, readIops, writeBps, writeIops, err := diskParseLimits(d.config)
+			limits, err := diskParseLimits(d.config)
 			if err != nil {
 				return err
 			}
@@ -1897,12 +1993,7 @@ func (d *disk) Update(oldDevices deviceConfig.Devices, isRunning bool) error {
 			// Always apply the limits so unsetting the config keys resets the throttle.
 			runConf.Mounts = []deviceConfig.MountEntryItem{{
 				DevName: d.name,
-				Limits: &deviceConfig.DiskLimits{
-					ReadBytes:  readBps,
-					ReadIOps:   readIops,
-					WriteBytes: writeBps,
-					WriteIOps:  writeIops,
-				},
+				Limits:  limits.toDeviceLimits(),
 			}}
 		}
 
@@ -2829,11 +2920,14 @@ func (d *disk) getDiskLimits() (map[string]diskBlockLimit, error) {
 			continue
 		}
 
-		// Parse the user input
-		readBps, readIops, writeBps, writeIops, err := diskParseLimits(dev)
+		// Parse the user input. Burst limits are rejected at validation time for containers,
+		// as the IO cgroup controller has no equivalent, so only the sustained limits are used here.
+		limits, err := diskParseLimits(dev)
 		if err != nil {
 			return nil, err
 		}
+
+		readBps, readIops, writeBps, writeIops := limits.readBps, limits.readIops, limits.writeBps, limits.writeIops
 
 		// Set the source path
 		source := d.getDevicePath(devName, dev)
@@ -2942,15 +3036,68 @@ func (d *disk) getDiskLimits() (map[string]diskBlockLimit, error) {
 	return result, nil
 }
 
+// diskValidateBurstLimits checks that the burst I/O limits of a device are consistent with its sustained limits.
+func diskValidateBurstLimits(dev deviceConfig.Device) error {
+	limits, err := diskParseLimits(dev)
+	if err != nil {
+		return err
+	}
+
+	if !limits.hasBurst() {
+		if dev["limits.burst.length"] != "" {
+			return errors.New("limits.burst.length requires a burst I/O limit to be set")
+		}
+
+		return nil
+	}
+
+	// A burst limit needs something to burst above, and can only ever raise that limit.
+	checks := []struct {
+		name      string
+		sustained int64
+		burst     int64
+	}{
+		{"read byte/s", limits.readBps, limits.readBpsBurst},
+		{"read IOPS", limits.readIops, limits.readIopsBurst},
+		{"write byte/s", limits.writeBps, limits.writeBpsBurst},
+		{"write IOPS", limits.writeIops, limits.writeIopsBurst},
+	}
+
+	for _, check := range checks {
+		if check.burst == 0 {
+			continue
+		}
+
+		if check.sustained == 0 {
+			return fmt.Errorf("A %s burst limit requires a matching sustained limit", check.name)
+		}
+
+		if check.burst < check.sustained {
+			return fmt.Errorf("The %s burst limit must be higher than the sustained limit", check.name)
+		}
+	}
+
+	return nil
+}
+
 // diskParseLimits parses a device configuration for its I/O limits and returns the I/O bytes/iops limits.
-func diskParseLimits(dev deviceConfig.Device) (int64, int64, int64, int64, error) {
+func diskParseLimits(dev deviceConfig.Device) (*diskIOLimits, error) {
+	limits := &diskIOLimits{}
+
 	readSpeed := dev["limits.read"]
 	writeSpeed := dev["limits.write"]
+	readBurstSpeed := dev["limits.read.burst"]
+	writeBurstSpeed := dev["limits.write.burst"]
 
 	// Apply max limit.
 	if dev["limits.max"] != "" {
 		readSpeed = dev["limits.max"]
 		writeSpeed = dev["limits.max"]
+	}
+
+	if dev["limits.max.burst"] != "" {
+		readBurstSpeed = dev["limits.max.burst"]
+		writeBurstSpeed = dev["limits.max.burst"]
 	}
 
 	// parseValue parses a comma separated list of B/s and iops limits.
@@ -3000,16 +3147,52 @@ func diskParseLimits(dev deviceConfig.Device) (int64, int64, int64, int64, error
 	// Process reads.
 	readBps, readIops, err := parseValue(readSpeed)
 	if err != nil {
-		return -1, -1, -1, -1, err
+		return nil, err
 	}
 
 	// Process writes.
 	writeBps, writeIops, err := parseValue(writeSpeed)
 	if err != nil {
-		return -1, -1, -1, -1, err
+		return nil, err
 	}
 
-	return readBps, readIops, writeBps, writeIops, nil
+	limits.readBps = readBps
+	limits.readIops = readIops
+	limits.writeBps = writeBps
+	limits.writeIops = writeIops
+
+	// Process burst reads.
+	readBpsBurst, readIopsBurst, err := parseValue(readBurstSpeed)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process burst writes.
+	writeBpsBurst, writeIopsBurst, err := parseValue(writeBurstSpeed)
+	if err != nil {
+		return nil, err
+	}
+
+	limits.readBpsBurst = readBpsBurst
+	limits.readIopsBurst = readIopsBurst
+	limits.writeBpsBurst = writeBpsBurst
+	limits.writeIopsBurst = writeIopsBurst
+
+	// Process the burst length, defaulting to a second as QEMU does.
+	if limits.hasBurst() {
+		limits.burstLength = 1
+
+		if dev["limits.burst.length"] != "" {
+			burstLength, err := time.ParseDuration(dev["limits.burst.length"])
+			if err != nil {
+				return nil, fmt.Errorf("Invalid burst length %q: %w", dev["limits.burst.length"], err)
+			}
+
+			limits.burstLength = int64(burstLength.Seconds())
+		}
+	}
+
+	return limits, nil
 }
 
 func (d *disk) getParentBlocks(path string) ([]string, error) {
