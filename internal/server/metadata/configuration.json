@@ -5174,6 +5174,13 @@
 						}
 					},
 					{
+						"parent": {
+							"longdesc": "",
+							"shortdesc": "Parent OVN network whose logical router and uplink to share",
+							"type": "string"
+						}
+					},
+					{
 						"security.acls": {
 							"longdesc": "",
 							"shortdesc": "Comma-separated list of Network ACLs to apply to NICs connected to this network",
