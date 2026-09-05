@@ -3456,3 +3456,8 @@ Adds a new `dns.include_hosts` configuration key to `bridge` networks,
 controlling whether the network's `dnsmasq` serves records from the host's
 `/etc/hosts` file. Setting it to `false` avoids exposing host-only entries
 to instances while keeping AppArmor confinement.
+
+## `network_ovn_parent`
+
+Adds a new `parent` configuration key to `ovn` networks, referencing another
+`ovn` network in the same project.
