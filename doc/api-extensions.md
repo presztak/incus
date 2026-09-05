@@ -3475,3 +3475,8 @@ dictionary. This allows writing rules based on claims such as `groups`.
 This allows a running instance to change project as part of a live migration
 to another cluster member. It also lets instances with `dependent` disks
 attached change project.
+
+## `network_ovn_parent`
+
+Adds a new `parent` configuration key to `ovn` networks, referencing another
+`ovn` network in the same project.
