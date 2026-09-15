@@ -217,6 +217,13 @@ func instancePost(d *Daemon, r *http.Request) response.Response {
 		req.Migration = true
 	}
 
+	if req.Project != "" {
+		err = checkProjectMove(s, inst, req.Project)
+		if err != nil {
+			return response.BadRequest(err)
+		}
+	}
+
 	// Handle simple instance renaming.
 	if !req.Migration {
 		run := func(op *operations.Operation) error {
