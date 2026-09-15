@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/lxc/incus/v7/internal/server/db"
 	dbCluster "github.com/lxc/incus/v7/internal/server/db/cluster"
@@ -26,13 +27,32 @@ func checkProjectMove(s *state.State, inst instance.Instance, targetProject stri
 		return err
 	}
 
+	dependentDisks := []string{}
+	err = inst.ForEachDependentDiskType(func(dev deviceConfig.DeviceNamed) error {
+		dependentDisks = append(dependentDisks, dev.Name)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// A dependent volume needs a volume project of its own to follow the instance into.
 	if srcVolProject == dstVolProject {
+		if len(dependentDisks) > 0 {
+			return fmt.Errorf("Dependent disk %q can't follow the instance, as both projects share their storage volumes", dependentDisks[0])
+		}
+
 		return nil
 	}
 
-	// Attached custom volumes are left behind when the volume project changes.
+	// Other attached custom volumes are left behind when the volume project changes.
 	for _, dev := range inst.ExpandedDevices().Sorted() {
 		if dev.Config["type"] != "disk" || dev.Config["path"] == "/" || dev.Config["pool"] == "" || dev.Config["source"] == "" {
+			continue
+		}
+
+		if slices.Contains(dependentDisks, dev.Name) {
 			continue
 		}
 
@@ -93,14 +113,6 @@ func targetProjectProfiles(ctx context.Context, s *state.State, targetProject st
 
 // checkProjectMoveLive validates that a running instance can be handed over to the target project unchanged.
 func checkProjectMoveLive(ctx context.Context, s *state.State, inst instance.Instance, targetProject string, req api.InstancePost) error {
-	// Dependent volumes can't follow an instance across projects yet.
-	err := inst.ForEachDependentDiskType(func(dev deviceConfig.DeviceNamed) error {
-		return fmt.Errorf("Dependent disk %q can't be moved across projects", dev.Name)
-	})
-	if err != nil {
-		return err
-	}
-
 	profileNames := req.Profiles
 	if profileNames == nil {
 		profileNames = make([]string, 0, len(inst.Profiles()))

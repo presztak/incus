@@ -898,7 +898,7 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 			}
 		}
 
-		err = cleanupDependentDisks(s, inst, req.Devices, op)
+		err = cleanupDependentDisks(s, inst, req.Devices, req.Project, op)
 		if err != nil {
 			return fmt.Errorf("Failed deleting instance dependent volumes on source member: %w", err)
 		}
@@ -1235,7 +1235,7 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 			}
 		}
 
-		err = cleanupDependentDisks(s, inst, req.Devices, op)
+		err = cleanupDependentDisks(s, inst, req.Devices, req.Project, op)
 		if err != nil {
 			return fmt.Errorf("Failed deleting instance dependent volumes on source member: %w", err)
 		}
@@ -1263,10 +1263,21 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 }
 
 // cleanupDependentDisks removes dependent volumes from the source after migration if needed.
-func cleanupDependentDisks(s *state.State, inst instance.Instance, deviceOverrides api.DevicesMap, op *operations.Operation) error {
+func cleanupDependentDisks(s *state.State, inst instance.Instance, deviceOverrides api.DevicesMap, targetProject string, op *operations.Operation) error {
 	volProject, err := project.StorageVolumeProject(s.DB.Cluster, inst.Project().Name, db.StoragePoolVolumeTypeCustom)
 	if err != nil {
 		return err
+	}
+
+	// A volume only left the source project if the two projects have separate storage volumes.
+	volumeProjectChanged := false
+	if targetProject != "" {
+		targetVolProject, err := project.StorageVolumeProject(s.DB.Cluster, targetProject, db.StoragePoolVolumeTypeCustom)
+		if err != nil {
+			return err
+		}
+
+		volumeProjectChanged = targetVolProject != volProject
 	}
 
 	err = inst.ForEachDependentDiskType(func(dev deviceConfig.DeviceNamed) error {
@@ -1286,8 +1297,8 @@ func cleanupDependentDisks(s *state.State, inst instance.Instance, deviceOverrid
 			}
 		}
 
-		// Volumes on remote pools cannot be removed.
-		if diskPool.Driver().Info().Remote {
+		// Volumes on remote pools cannot be removed, unless they were copied into another project.
+		if diskPool.Driver().Info().Remote && !volumeProjectChanged {
 			return nil
 		}
 
