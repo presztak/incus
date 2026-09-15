@@ -281,9 +281,24 @@ func instancePost(d *Daemon, r *http.Request) response.Response {
 				}
 			}
 
-			// Project changes require a stopped instance.
+			// Live project changes require a target flag.
 			if req.Project != "" {
-				return response.BadRequest(errors.New("Instance must be stopped to be moved across projects"))
+				if !req.Live {
+					return response.BadRequest(errors.New("Instance must be stopped to be moved across projects"))
+				}
+
+				if !s.ServerClustered {
+					return response.BadRequest(errors.New("Live project changes aren't supported on standalone systems"))
+				}
+
+				if target == "" {
+					return response.BadRequest(errors.New("Live project changes require the instance be moved to another cluster member"))
+				}
+
+				err := checkProjectMoveLive(r.Context(), s, inst, req.Project, req)
+				if err != nil {
+					return response.BadRequest(err)
+				}
 			}
 
 			// Name changes require a stopped instance.
@@ -937,7 +952,15 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 			return fmt.Errorf("Failed to connect to destination server %q: %w", targetMemberInfo.Address, err)
 		}
 
-		target = target.UseProject(inst.Project().Name)
+		// A project change can't reuse the instance record, so it goes over as a new instance.
+		targetProject := inst.Project().Name
+		clusterMoveSourceName := inst.Name()
+		if req.Project != "" {
+			targetProject = req.Project
+			clusterMoveSourceName = ""
+		}
+
+		target = target.UseProject(targetProject)
 		target = target.UseTarget(targetMemberInfo.Name)
 
 		// Get the source member info if missing.
@@ -1014,7 +1037,7 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 		}
 
 		// Setup a new migration source.
-		sourceMigration, err := newMigrationSource(inst, req.Live, false, req.AllowInconsistent, inst.Name(), req.Pool, req.Devices, localDiskTransfer.diskNames(), nil)
+		sourceMigration, err := newMigrationSource(inst, req.Live, false, req.AllowInconsistent, clusterMoveSourceName, req.Pool, req.Devices, localDiskTransfer.diskNames(), nil)
 		if err != nil {
 			return fmt.Errorf("Failed setting up instance migration on source: %w", err)
 		}
@@ -1069,7 +1092,7 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 				Websockets:  sourceSecrets,
 				Certificate: string(networkCert.PublicKey()),
 				Live:        req.Live,
-				Source:      inst.Name(),
+				Source:      clusterMoveSourceName,
 			},
 		})
 		if err != nil {
@@ -1091,19 +1114,21 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 		// A live migration on the same shared storage is handed over once the source succeeds,
 		// so the database record must follow the instance even if the destination reported an error.
 		destErr := destOp.Wait()
-		if destErr != nil && (!req.Live || !sourcePool.Driver().Info().Remote || req.Pool != "") {
+		if destErr != nil && (!req.Live || !sourcePool.Driver().Info().Remote || req.Pool != "" || req.Project != "") {
 			return fmt.Errorf("Instance move to destination failed: %w", destErr)
 		}
 
 		// Update the database post-migration.
 		err = s.DB.Cluster.Transaction(context.Background(), func(ctx context.Context, tx *db.ClusterTx) error {
-			// Update instance DB record to indicate its location on the new cluster member.
-			err = tx.UpdateInstanceNode(ctx, inst.Project().Name, inst.Name(), inst.Name(), targetMemberInfo.Name, sourcePool.ID(), volDBType)
-			if err != nil {
-				return fmt.Errorf("Failed updating cluster member to %q for instance %q: %w", targetMemberInfo.Name, inst.Name(), err)
+			if req.Project == "" {
+				// Update instance DB record to indicate its location on the new cluster member.
+				err = tx.UpdateInstanceNode(ctx, inst.Project().Name, inst.Name(), inst.Name(), targetMemberInfo.Name, sourcePool.ID(), volDBType)
+				if err != nil {
+					return fmt.Errorf("Failed updating cluster member to %q for instance %q: %w", targetMemberInfo.Name, inst.Name(), err)
+				}
 			}
 
-			id, err := dbCluster.GetInstanceID(ctx, tx.Tx(), inst.Project().Name, inst.Name())
+			id, err := dbCluster.GetInstanceID(ctx, tx.Tx(), targetProject, inst.Name())
 			if err != nil {
 				return fmt.Errorf("Failed to get ID of moved instance: %w", err)
 			}
@@ -1168,9 +1193,23 @@ func migrateInstance(ctx context.Context, s *state.State, inst instance.Instance
 		// The instance now belongs to the target member, so restarting the source is no longer the right thing to do on failure.
 		nearLiveReverter.Success()
 
-		// Cleanup instance paths on source member if using remote shared storage
-		// and there was no storage pool change.
-		if sourcePool.Driver().Info().Remote && req.Pool == "" {
+		// A project change leaves a full instance record behind on the source member.
+		if req.Project != "" {
+			// The instance runs on the target member now, so the source is only a left-over copy.
+			if inst.IsRunning() {
+				err = inst.Stop(false)
+				if err != nil {
+					return fmt.Errorf("Failed stopping instance on source member: %w", err)
+				}
+			}
+
+			err = inst.Delete(true, false)
+			if err != nil {
+				return fmt.Errorf("Failed deleting instance on source member: %w", err)
+			}
+		} else if sourcePool.Driver().Info().Remote && req.Pool == "" {
+			// Cleanup instance paths on source member if using remote shared storage
+			// and there was no storage pool change.
 			err = sourcePool.CleanupInstancePaths(inst, nil)
 			if err != nil {
 				return fmt.Errorf("Failed cleaning up instance paths on source member: %w", err)
