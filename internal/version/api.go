@@ -575,6 +575,7 @@ var APIExtensions = []string{
 	"storage_cephobject_endpoint_cert",
 	"device_queue_disc",
 	"network_bridge_dns_include_hosts",
+	"instance_project_move_live",
 }
 
 // APIExtensionsCount returns the number of available API extensions.

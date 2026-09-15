@@ -3456,3 +3456,13 @@ Adds a new `dns.include_hosts` configuration key to `bridge` networks,
 controlling whether the network's `dnsmasq` serves records from the host's
 `/etc/hosts` file. Setting it to `false` avoids exposing host-only entries
 to instances while keeping AppArmor confinement.
+
+## `instance_project_move_live`
+
+This allows a running instance to change project as part of a live migration
+to another cluster member, through the `project` field of the
+`POST /1.0/instances/NAME` API.
+
+It also lets an instance with `dependent` custom storage volumes attached change
+project, moving those volumes along with it, as long as the two projects don't
+share their storage volumes.
